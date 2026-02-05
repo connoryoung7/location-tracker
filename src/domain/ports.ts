@@ -1,0 +1,12 @@
+import type { LocationPayload, TransitionPayload } from "./types.ts";
+
+export interface LocationRepository {
+  saveLocation(payload: LocationPayload): void | Promise<void>;
+  saveTransition(payload: TransitionPayload): void | Promise<void>;
+}
+
+export interface Logger {
+  info(message: string, data?: unknown): void;
+  warn(message: string, data?: unknown): void;
+  error(message: string, data?: unknown): void;
+}
