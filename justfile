@@ -24,19 +24,19 @@ typecheck:
 
 # Lint the project
 lint:
-    bunx biome check src/
+    bunx oxlint src/
 
 # Lint and auto-fix
 lint-fix:
-    bunx biome check --write src/
+    bunx oxlint --fix src/
 
 # Format the project
 fmt:
-    bunx biome format --write src/
+    bunx oxfmt --write src/
 
 # Check formatting without writing
 fmt-check:
-    bunx biome format src/
+    bunx oxfmt src/
 
 # Install dependencies
 install:

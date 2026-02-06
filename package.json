@@ -11,7 +11,9 @@
     "start:worker": "bun src/entrypoints/worker.ts"
   },
   "devDependencies": {
-    "@types/bun": "latest"
+    "@types/bun": "latest",
+    "oxfmt": "^0.28.0",
+    "oxlint": "^1.43.0"
   },
   "peerDependencies": {
     "typescript": "^5"
