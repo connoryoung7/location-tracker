@@ -9,13 +9,13 @@ export interface Deps {
   logger: Logger;
 }
 
-export function handlePayload(payload: OwnTracksPayload, deps: Deps): void {
+export async function handlePayload(payload: OwnTracksPayload, deps: Deps): Promise<void> {
   switch (payload._type) {
     case 'location':
-      handleLocation(payload, deps);
+      await handleLocation(payload, deps);
       break;
     case 'transition':
-      handleTransition(payload, deps);
+      await handleTransition(payload, deps);
       break;
     default:
       handleFallback(payload, deps);

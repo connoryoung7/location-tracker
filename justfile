@@ -70,5 +70,17 @@ db-migrate:
 db-studio:
     bunx drizzle-kit studio
 
+# Start Docker Compose services
+compose-up:
+    docker compose up -d --build
+
+# Stop Docker Compose services
+compose-down:
+    docker compose down
+
+# Follow Docker Compose logs
+compose-logs:
+    docker compose logs -f
+
 # Run all checks (typecheck, lint, test)
 check: typecheck lint test

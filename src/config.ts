@@ -2,6 +2,7 @@ export interface Config {
   port: number;
   dbPath: string;
   mqttBrokerUrl: string;
+  databaseUrl?: string;
 }
 
 export function loadConfig(): Config {
@@ -9,5 +10,6 @@ export function loadConfig(): Config {
     port: Number(process.env.PORT) || 3000,
     dbPath: process.env.DB_PATH || 'location-tracker.db',
     mqttBrokerUrl: process.env.MQTT_BROKER_URL || 'mqtt://localhost:1883',
+    databaseUrl: process.env.DATABASE_URL,
   };
 }

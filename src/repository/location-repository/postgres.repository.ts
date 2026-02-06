@@ -46,6 +46,42 @@ export class PostgresLocationRepository implements LocationRepository {
     `;
   }
 
+  async migrate(): Promise<void> {
+    await this.conn`
+      CREATE TABLE IF NOT EXISTS locations (
+        id SERIAL PRIMARY KEY,
+        lat DOUBLE PRECISION NOT NULL,
+        lon DOUBLE PRECISION NOT NULL,
+        tst INTEGER NOT NULL,
+        tid TEXT NOT NULL,
+        acc DOUBLE PRECISION,
+        alt DOUBLE PRECISION,
+        batt INTEGER,
+        vel DOUBLE PRECISION,
+        conn TEXT,
+        tag TEXT,
+        topic TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `;
+    await this.conn`
+      CREATE TABLE IF NOT EXISTS transitions (
+        id SERIAL PRIMARY KEY,
+        tst INTEGER NOT NULL,
+        wtst INTEGER NOT NULL,
+        acc DOUBLE PRECISION NOT NULL,
+        event TEXT NOT NULL,
+        lat DOUBLE PRECISION,
+        lon DOUBLE PRECISION,
+        tid TEXT,
+        "desc" TEXT,
+        t TEXT,
+        rid TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `;
+  }
+
   async close(): Promise<void> {
     await this.conn.close();
   }
