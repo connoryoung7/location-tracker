@@ -39,6 +39,14 @@
     ],
 
     /* =========
+     * TypeScript
+     * ========= */
+    "typescript/consistent-type-imports": [
+      "error",
+      { "fixStyle": "separate-type-imports" }
+    ],
+
+    /* =========
      * Imports (enterprise baseline)
      * ========= */
     "import/first": "error",

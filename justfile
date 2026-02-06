@@ -56,7 +56,19 @@ docker-run: docker-build
 
 # Run development Docker container with hot reloading
 docker-dev: docker-build-dev
-    docker run -v ./src:/app/src -v ./tsconfig.json:/app/tsconfig.json -p 3000:3000 location-tracker-dev
+    docker run -v ./src:/app/src -v ./drizzle:/app/drizzle -v ./tsconfig.json:/app/tsconfig.json -p 3000:3000 location-tracker-dev
+
+# Generate a new Drizzle migration from schema changes
+db-generate:
+    bunx drizzle-kit generate
+
+# Run pending database migrations
+db-migrate:
+    bun src/infrastructure/persistence/migrate.ts
+
+# Open Drizzle Studio for database inspection
+db-studio:
+    bunx drizzle-kit studio
 
 # Run all checks (typecheck, lint, test)
 check: typecheck lint test
