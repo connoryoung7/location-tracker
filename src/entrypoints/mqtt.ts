@@ -4,5 +4,5 @@
 // import { SqliteLocationRepository } from "@/infrastructure/persistence/sqlite.repository.ts";
 // import { createMqttClient } from "@/infrastructure/mqtt/client.ts";
 
-console.error("MQTT entrypoint not yet implemented");
+console.error('MQTT entrypoint not yet implemented');
 process.exit(1);

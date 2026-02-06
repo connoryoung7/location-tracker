@@ -1,6 +1,6 @@
-import { SQL } from "bun";
-import type { LocationPayload, TransitionPayload } from "@/domain/types.ts";
-import type { LocationRepository } from "@/domain/ports.ts";
+import { SQL } from 'bun';
+import type { LocationPayload, TransitionPayload } from '@/domain/types.ts';
+import type { LocationRepository } from '@/domain/ports.ts';
 
 export class PostgresLocationRepository implements LocationRepository {
   private conn: SQL;

@@ -1,5 +1,5 @@
-import type { LocationPayload } from "@/domain/types.ts";
-import type { LocationRepository, Logger } from "@/domain/ports.ts";
+import type { LocationPayload } from '@/domain/types.ts';
+import type { LocationRepository, Logger } from '@/domain/ports.ts';
 
 export function handleLocation(
   payload: LocationPayload,

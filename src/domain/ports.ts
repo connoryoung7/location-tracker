@@ -1,4 +1,4 @@
-import type { LocationPayload, TransitionPayload } from "@/domain/types.ts";
+import type { LocationPayload, TransitionPayload } from '@/domain/types.ts';
 
 export interface LocationRepository {
   saveLocation(payload: LocationPayload): void | Promise<void>;

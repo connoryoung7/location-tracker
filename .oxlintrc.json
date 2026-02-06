@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json.schemastore.org/oxlint.json",
+
+  "ignorePatterns": [
+    "dist/**",
+    "build/**",
+    "coverage/**",
+    ".bun/**",
+    "node_modules/**"
+  ],
+
+  "env": {
+    "es2022": true,
+    "node": true
+  },
+
+  "rules": {
+    /* =========
+     * Correctness
+     * ========= */
+    "no-debugger": "error",
+    "eqeqeq": ["error", "always", { "null": "ignore" }],
+
+    /* =========
+     * Console usage (prod-friendly)
+     * ========= */
+    "no-console": ["warn", { "allow": ["warn", "error"] }],
+
+    /* =========
+     * Clean code / diff hygiene
+     * ========= */
+    "no-unused-vars": [
+      "warn",
+      {
+        "argsIgnorePattern": "^_",
+        "varsIgnorePattern": "^_",
+        "caughtErrorsIgnorePattern": "^_"
+      }
+    ],
+
+    /* =========
+     * Imports (enterprise baseline)
+     * ========= */
+    "import/first": "error",
+    "import/no-duplicates": "error",
+    "import/newline-after-import": "error"
+  }
+}

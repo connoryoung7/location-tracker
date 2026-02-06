@@ -5,7 +5,7 @@ export type OwnTracksBase = {
 
 /** Location report from the device */
 export type LocationPayload = OwnTracksBase & {
-  _type: "location";
+  _type: 'location';
   /** Latitude (degrees) */
   lat: number;
   /** Longitude (degrees) */
@@ -27,7 +27,7 @@ export type LocationPayload = OwnTracksBase & {
   /** Trigger for the location report: p=ping, c=circular, C=circular(iOS), b=beacon, r=reportLocation, u=manual, t=timer, v=monitoring */
   t?: string;
   /** Internet connectivity: w=WiFi, o=offline, m=mobile */
-  conn?: "w" | "o" | "m";
+  conn?: 'w' | 'o' | 'm';
   /** Course over ground (degrees, only present if non-zero) */
   cog?: number;
   /** Vertical accuracy (meters, only present if non-zero) */
@@ -64,14 +64,14 @@ export type LocationPayload = OwnTracksBase & {
 
 /** Last Will and Testament - published when connection to the broker is lost */
 export type LwtPayload = OwnTracksBase & {
-  _type: "lwt";
+  _type: 'lwt';
   /** Timestamp at which the app first connected (Unix epoch seconds) */
   tst: number;
 };
 
 /** A geographical region or BLE beacon definition */
 export type WaypointPayload = OwnTracksBase & {
-  _type: "waypoint";
+  _type: 'waypoint';
   /** Name of the waypoint */
   desc: string;
   /** Timestamp of waypoint creation (Unix epoch seconds) */
@@ -94,7 +94,7 @@ export type WaypointPayload = OwnTracksBase & {
 
 /** Enter/leave event for a waypoint region or beacon */
 export type TransitionPayload = OwnTracksBase & {
-  _type: "transition";
+  _type: 'transition';
   /** Timestamp at which event occurred (Unix epoch seconds) */
   tst: number;
   /** Timestamp of the waypoint creation (Unix epoch seconds) */
@@ -102,7 +102,7 @@ export type TransitionPayload = OwnTracksBase & {
   /** Accuracy of geographical coordinates (meters) */
   acc: number;
   /** Event type */
-  event: "enter" | "leave";
+  event: 'enter' | 'leave';
   /** Latitude at which event occurred (degrees) */
   lat?: number;
   /** Longitude at which event occurred (degrees) */
@@ -112,14 +112,14 @@ export type TransitionPayload = OwnTracksBase & {
   /** Name of the waypoint */
   desc?: string;
   /** Trigger type: c=circular, b=beacon, l=location */
-  t?: "c" | "b" | "l";
+  t?: 'c' | 'b' | 'l';
   /** Region ID */
   rid?: string;
 };
 
 /** BLE beacon ranging data */
 export type BeaconPayload = OwnTracksBase & {
-  _type: "beacon";
+  _type: 'beacon';
   /** Name of seen beacon */
   desc?: string;
   /** UUID of seen beacon */
@@ -140,7 +140,7 @@ export type BeaconPayload = OwnTracksBase & {
 
 /** Step counter data */
 export type StepsPayload = OwnTracksBase & {
-  _type: "steps";
+  _type: 'steps';
   /** Timestamp of request (Unix epoch seconds) */
   tst: number;
   /** Steps walked in specified time period */
@@ -153,7 +153,7 @@ export type StepsPayload = OwnTracksBase & {
 
 /** User identification and display data */
 export type CardPayload = OwnTracksBase & {
-  _type: "card";
+  _type: 'card';
   /** Tracker ID to associate card with */
   tid: string;
   /** Name to identify the user */
@@ -164,7 +164,7 @@ export type CardPayload = OwnTracksBase & {
 
 /** Bulk waypoint export */
 export type WaypointsPayload = OwnTracksBase & {
-  _type: "waypoints";
+  _type: 'waypoints';
   /** Array of waypoint messages */
   waypoints: WaypointPayload[];
   /** Identification of the creator */
@@ -173,14 +173,14 @@ export type WaypointsPayload = OwnTracksBase & {
 
 /** Encrypted message wrapper */
 export type EncryptedPayload = OwnTracksBase & {
-  _type: "encrypted";
+  _type: 'encrypted';
   /** Encrypted and Base64 encoded original JSON message */
   data: string;
 };
 
 /** Device status and capabilities */
 export type StatusPayload = OwnTracksBase & {
-  _type: "status";
+  _type: 'status';
   altimeterAuthorizationStatus?: string;
   altimeterIsRelativeAltitudeAvailable?: boolean;
   backgroundRefreshStatus?: boolean;
@@ -204,17 +204,17 @@ export type StatusPayload = OwnTracksBase & {
 
 /** Remote command request */
 export type CmdPayload = OwnTracksBase & {
-  _type: "cmd";
+  _type: 'cmd';
   /** Action to perform */
   action:
-    | "dump"
-    | "status"
-    | "reportSteps"
-    | "reportLocation"
-    | "clearWaypoints"
-    | "setWaypoints"
-    | "setConfiguration"
-    | "waypoints";
+    | 'dump'
+    | 'status'
+    | 'reportSteps'
+    | 'reportLocation'
+    | 'clearWaypoints'
+    | 'setWaypoints'
+    | 'setConfiguration'
+    | 'waypoints';
   /** Configuration to import (for setConfiguration) */
   configuration?: Record<string, unknown>;
   /** Waypoints to import (for setWaypoints) */
@@ -227,7 +227,7 @@ export type CmdPayload = OwnTracksBase & {
 
 /** Feature request message */
 export type RequestPayload = OwnTracksBase & {
-  _type: "request";
+  _type: 'request';
   /** Request type */
   request: string;
   /** Tour specification for tour requests */

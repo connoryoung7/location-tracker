@@ -1,8 +1,8 @@
-import { loadConfig } from "@/config.ts";
-import { PinoLogger } from "@/infrastructure/logging/pino.logger.ts";
-import { SqliteLocationRepository } from "@/infrastructure/persistence/sqlite.repository.ts";
-import { createHttpServer } from "@/infrastructure/http/server.ts";
-import type { Deps } from "@/application/handle-payload.ts";
+import { loadConfig } from '@/config.ts';
+import { PinoLogger } from '@/infrastructure/logging/pino.logger.ts';
+import { SqliteLocationRepository } from '@/infrastructure/persistence/sqlite.repository.ts';
+import { createHttpServer } from '@/infrastructure/http/server.ts';
+import type { Deps } from '@/application/handle-payload.ts';
 
 const config = loadConfig();
 

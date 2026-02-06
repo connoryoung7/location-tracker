@@ -1,14 +1,14 @@
 const command = process.argv[2];
 
 switch (command) {
-  case "http":
-    await import("./http.ts");
+  case 'http':
+    await import('./http.ts');
     break;
-  case "mqtt":
-    await import("./mqtt.ts");
+  case 'mqtt':
+    await import('./mqtt.ts');
     break;
-  case "worker":
-    await import("./worker.ts");
+  case 'worker':
+    await import('./worker.ts');
     break;
   default:
     console.error(`Usage: bun src/entrypoints/main.ts <http|mqtt|worker>`);
