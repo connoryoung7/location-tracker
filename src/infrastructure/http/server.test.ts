@@ -1,9 +1,9 @@
 import { test, expect, describe, beforeAll, afterAll, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";
-import { createHttpServer } from "./server.ts";
-import { SqliteLocationRepository } from "../persistence/sqlite.repository.ts";
-import { ConsoleLogger } from "../logging/console.logger.ts";
-import type { Deps } from "../../application/handle-payload.ts";
+import { createHttpServer } from "@/infrastructure/http/server.ts";
+import { SqliteLocationRepository } from "@/infrastructure/persistence/sqlite.repository.ts";
+import { ConsoleLogger } from "@/infrastructure/logging/console.logger.ts";
+import type { Deps } from "@/application/handle-payload.ts";
 import type { Server } from "node:http";
 
 const TEST_DB = ":memory:";

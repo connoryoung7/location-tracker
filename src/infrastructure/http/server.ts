@@ -1,6 +1,6 @@
 import express from "express";
-import type { OwnTracksPayload } from "../../domain/types.ts";
-import { handlePayload, type Deps } from "../../application/handle-payload.ts";
+import type { OwnTracksPayload } from "@/domain/types.ts";
+import { handlePayload, type Deps } from "@/application/handle-payload.ts";
 
 export function createHttpServer(deps: Deps) {
   const app = express();

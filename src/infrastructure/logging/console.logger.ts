@@ -1,4 +1,4 @@
-import type { Logger } from "../../domain/ports.ts";
+import type { Logger } from "@/domain/ports.ts";
 
 export class ConsoleLogger implements Logger {
   info(message: string, data?: unknown): void {

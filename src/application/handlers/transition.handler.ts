@@ -1,5 +1,5 @@
-import type { TransitionPayload } from "../../domain/types.ts";
-import type { LocationRepository, Logger } from "../../domain/ports.ts";
+import type { TransitionPayload } from "@/domain/types.ts";
+import type { LocationRepository, Logger } from "@/domain/ports.ts";
 
 export function handleTransition(
   payload: TransitionPayload,

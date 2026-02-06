@@ -1,5 +1,5 @@
-import type { OwnTracksPayload } from "../../domain/types.ts";
-import type { Logger } from "../../domain/ports.ts";
+import type { OwnTracksPayload } from "@/domain/types.ts";
+import type { Logger } from "@/domain/ports.ts";
 
 export function handleFallback(
   payload: OwnTracksPayload,

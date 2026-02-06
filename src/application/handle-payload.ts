@@ -1,8 +1,8 @@
-import type { OwnTracksPayload } from "../domain/types.ts";
-import type { LocationRepository, Logger } from "../domain/ports.ts";
-import { handleLocation } from "./handlers/location.handler.ts";
-import { handleTransition } from "./handlers/transition.handler.ts";
-import { handleFallback } from "./handlers/fallback.handler.ts";
+import type { OwnTracksPayload } from "@/domain/types.ts";
+import type { LocationRepository, Logger } from "@/domain/ports.ts";
+import { handleLocation } from "@/application/handlers/location.handler.ts";
+import { handleTransition } from "@/application/handlers/transition.handler.ts";
+import { handleFallback } from "@/application/handlers/fallback.handler.ts";
 
 export interface Deps {
   repo: LocationRepository;

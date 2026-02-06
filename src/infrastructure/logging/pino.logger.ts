@@ -1,5 +1,5 @@
 import pino from "pino";
-import type { Logger } from "../../domain/ports.ts";
+import type { Logger } from "@/domain/ports.ts";
 
 export class PinoLogger implements Logger {
   private logger: pino.Logger;

@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
-import type { LocationPayload, TransitionPayload } from "../../domain/types.ts";
-import type { LocationRepository } from "../../domain/ports.ts";
+import type { LocationPayload, TransitionPayload } from "@/domain/types.ts";
+import type { LocationRepository } from "@/domain/ports.ts";
 
 export class SqliteLocationRepository implements LocationRepository {
   private db: Database;

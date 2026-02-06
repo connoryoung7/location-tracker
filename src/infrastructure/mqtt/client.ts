@@ -1,5 +1,5 @@
-import type { Deps } from "../../application/handle-payload.ts";
-import type { Config } from "../../config.ts";
+import type { Deps } from "@/application/handle-payload.ts";
+import type { Config } from "@/config.ts";
 
 // TODO: Implement MQTT subscriber
 // Will connect to config.mqttBrokerUrl, subscribe to owntracks/+/+ topic,
