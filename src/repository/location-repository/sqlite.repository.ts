@@ -47,4 +47,8 @@ export class SqliteLocationRepository implements LocationRepository {
       ],
     );
   }
+
+  async healthCheck(): Promise<void> {
+    this.db.prepare('SELECT 1').get();
+  }
 }

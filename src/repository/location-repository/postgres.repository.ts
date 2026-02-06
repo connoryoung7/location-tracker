@@ -82,6 +82,10 @@ export class PostgresLocationRepository implements LocationRepository {
     `;
   }
 
+  async healthCheck(): Promise<void> {
+    await this.conn`SELECT 1`;
+  }
+
   async close(): Promise<void> {
     await this.conn.close();
   }

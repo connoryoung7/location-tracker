@@ -10,6 +10,15 @@ export function createHttpServer(deps: Deps) {
     res.send('Location Tracker');
   });
 
+  app.get('/_health', async (_req, res) => {
+    try {
+      await deps.repo.healthCheck();
+      res.status(200).json({ status: 'ok' });
+    } catch {
+      res.status(503).json({ status: 'error' });
+    }
+  });
+
   app.post('/owntracks', async (req, res) => {
     const payload = req.body as OwnTracksPayload;
 

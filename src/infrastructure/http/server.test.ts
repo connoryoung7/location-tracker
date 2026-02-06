@@ -48,6 +48,15 @@ function post(path: string, body: unknown) {
   });
 }
 
+describe('GET /_health', () => {
+  test('returns 200 with status ok', async () => {
+    const res = await fetch(`${baseUrl}/_health`);
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ status: 'ok' });
+  });
+});
+
 describe('POST /owntracks location', () => {
   test('returns 200 with empty array for valid location', async () => {
     const res = await post('/owntracks', {
