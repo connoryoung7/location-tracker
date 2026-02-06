@@ -1,12 +1,12 @@
 import { test, expect, describe, beforeAll, afterAll, beforeEach } from 'bun:test';
 import { Database } from 'bun:sqlite';
 import { createHttpServer } from '@/infrastructure/http/server.ts';
-import { SqliteLocationRepository } from '@/infrastructure/persistence/sqlite.repository.ts';
 import { ConsoleLogger } from '@/infrastructure/logging/console.logger.ts';
+import { runMigrations } from '@/infrastructure/persistence/migrate.ts';
+import { SqliteLocationRepository } from '@/repository/location-repository/sqlite.repository';
 import type { Deps } from '@/application/handle-payload.ts';
 import type { Server } from 'node:http';
 
-const TEST_DB = ':memory:';
 const TEST_PORT = 0; // let OS pick an available port
 
 let server: Server;
@@ -14,12 +14,11 @@ let baseUrl: string;
 let db: Database;
 
 beforeAll((done) => {
-  const repo = new SqliteLocationRepository(TEST_DB);
-  // Access internal db for assertions
-  db = (repo as any).db;
+  db = new Database(':memory:');
+  runMigrations(db);
 
   const deps: Deps = {
-    repo,
+    repo: new SqliteLocationRepository(db),
     logger: new ConsoleLogger(),
   };
 

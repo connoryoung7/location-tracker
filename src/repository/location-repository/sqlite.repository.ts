@@ -1,50 +1,12 @@
-import { Database } from 'bun:sqlite';
+import type { Database } from 'bun:sqlite';
 import type { LocationPayload, TransitionPayload } from '@/domain/types.ts';
 import type { LocationRepository } from '@/domain/ports.ts';
 
 export class SqliteLocationRepository implements LocationRepository {
   private db: Database;
 
-  constructor(dbPath: string) {
-    this.db = new Database(dbPath, { create: true });
-    this.migrate();
-  }
-
-  private migrate(): void {
-    this.db.run(`
-      CREATE TABLE IF NOT EXISTS locations (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        lat REAL NOT NULL,
-        lon REAL NOT NULL,
-        tst INTEGER NOT NULL,
-        tid TEXT NOT NULL,
-        acc REAL,
-        alt REAL,
-        batt INTEGER,
-        vel REAL,
-        conn TEXT,
-        tag TEXT,
-        topic TEXT,
-        created_at TEXT DEFAULT (datetime('now'))
-      )
-    `);
-
-    this.db.run(`
-      CREATE TABLE IF NOT EXISTS transitions (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        tst INTEGER NOT NULL,
-        wtst INTEGER NOT NULL,
-        acc REAL NOT NULL,
-        event TEXT NOT NULL,
-        lat REAL,
-        lon REAL,
-        tid TEXT,
-        "desc" TEXT,
-        t TEXT,
-        rid TEXT,
-        created_at TEXT DEFAULT (datetime('now'))
-      )
-    `);
+  constructor(db: Database) {
+    this.db = db;
   }
 
   saveLocation(payload: LocationPayload): void {

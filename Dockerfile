@@ -9,8 +9,9 @@ RUN bun install --frozen-lockfile --production
 # Production image
 FROM base
 COPY --from=deps /app/node_modules ./node_modules
-COPY package.json bun.lock tsconfig.json ./
+COPY package.json bun.lock tsconfig.json drizzle.config.ts ./
 COPY src ./src
+COPY drizzle ./drizzle
 
 ENV NODE_ENV=production
 EXPOSE 3000
