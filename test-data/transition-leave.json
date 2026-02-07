@@ -1,0 +1,13 @@
+{
+  "_type": "transition",
+  "tst": 1738830000,
+  "wtst": 1738700000,
+  "acc": 10,
+  "event": "leave",
+  "lat": 40.7128,
+  "lon": -74.006,
+  "tid": "CY",
+  "desc": "Office",
+  "t": "c",
+  "rid": "office-01"
+}

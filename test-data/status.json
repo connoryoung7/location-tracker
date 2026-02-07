@@ -1,0 +1,10 @@
+{
+  "_type": "status",
+  "deviceModel": "iPhone15,2",
+  "deviceSystemName": "iOS",
+  "deviceSystemVersion": "18.3",
+  "locale": "en_US",
+  "localeUsesMetricSystem": false,
+  "locationManagerAuthorizationStatus": "authorizedAlways",
+  "version": "2.5.2"
+}

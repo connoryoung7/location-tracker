@@ -1,0 +1,11 @@
+{
+  "_type": "beacon",
+  "desc": "Front Door",
+  "uuid": "B9407F30-F5F8-466E-AFF9-25556B57FE6D",
+  "major": 1,
+  "minor": 100,
+  "tst": 1738800000,
+  "acc": 2,
+  "rssi": -65,
+  "prox": 2
+}

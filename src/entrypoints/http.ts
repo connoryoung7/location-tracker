@@ -15,6 +15,7 @@ const logger = new PinoLogger();
 let deps: Deps;
 
 if (config.databaseUrl) {
+  console.log('Using Postgres database at', config.databaseUrl);
   const sql = new SQL(config.databaseUrl);
   const repo = new PostgresLocationRepository(sql);
   await repo.migrate();

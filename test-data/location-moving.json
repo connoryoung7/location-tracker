@@ -1,0 +1,19 @@
+{
+  "_type": "location",
+  "lat": 34.0522,
+  "lon": -118.2437,
+  "tst": 1738803600,
+  "tid": "CY",
+  "acc": 25,
+  "alt": 90,
+  "batt": 62,
+  "bs": 1,
+  "vel": 88,
+  "t": "t",
+  "conn": "m",
+  "cog": 180,
+  "vac": 15,
+  "tag": "phone",
+  "m": 2,
+  "topic": "owntracks/connor/phone"
+}

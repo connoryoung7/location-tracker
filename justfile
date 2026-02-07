@@ -82,5 +82,9 @@ compose-down:
 compose-logs:
     docker compose logs -f
 
+# Send all test-data payloads to the OwnTracks endpoint
+test-data url="http://localhost:3000":
+    ./test-data/send-all.sh {{url}}
+
 # Run all checks (typecheck, lint, test)
 check: typecheck lint test
