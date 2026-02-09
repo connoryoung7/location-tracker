@@ -1,5 +1,5 @@
 import type { SQL } from 'bun';
-import type { LocationPayload, TransitionPayload } from '@/domain/types.ts';
+import type { LocationPayload, TransitionPayload, WaypointPayload } from '@/domain/types.ts';
 import type { LocationRepository } from '@/domain/ports.ts';
 
 export class PostgresLocationRepository implements LocationRepository {
@@ -46,6 +46,23 @@ export class PostgresLocationRepository implements LocationRepository {
     `;
   }
 
+  async saveWaypoint(payload: WaypointPayload): Promise<void> {
+    await this.conn`
+      INSERT INTO waypoints ("desc", tst, lat, lon, rad, uuid, major, minor, rid)
+      VALUES (
+        ${payload.desc},
+        ${payload.tst},
+        ${payload.lat ?? null},
+        ${payload.lon ?? null},
+        ${payload.rad ?? null},
+        ${payload.uuid ?? null},
+        ${payload.major ?? null},
+        ${payload.minor ?? null},
+        ${payload.rid ?? null}
+      )
+    `;
+  }
+
   async migrate(): Promise<void> {
     await this.conn`
       CREATE TABLE IF NOT EXISTS locations (
@@ -61,6 +78,21 @@ export class PostgresLocationRepository implements LocationRepository {
         conn TEXT,
         tag TEXT,
         topic TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `;
+    await this.conn`
+      CREATE TABLE IF NOT EXISTS waypoints (
+        id SERIAL PRIMARY KEY,
+        "desc" TEXT NOT NULL,
+        tst INTEGER NOT NULL,
+        lat DOUBLE PRECISION,
+        lon DOUBLE PRECISION,
+        rad DOUBLE PRECISION,
+        uuid TEXT,
+        major INTEGER,
+        minor INTEGER,
+        rid TEXT,
         created_at TIMESTAMPTZ DEFAULT NOW()
       )
     `;

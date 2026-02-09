@@ -22,6 +22,7 @@ services:
     environment:
       DATABASE_URL: postgres://location_tracker:location_tracker@db:5432/location_tracker
       PORT: "3000"
+      ENCRYPTION_KEY: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" # 32 bytes key for testing
     depends_on:
       db:
         condition: service_healthy
