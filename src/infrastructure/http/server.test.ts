@@ -57,9 +57,9 @@ describe('GET /_health', () => {
   });
 });
 
-describe('POST /owntracks location', () => {
+describe('POST /pub location', () => {
   test('returns 200 with empty array for valid location', async () => {
-    const res = await post('/owntracks', {
+    const res = await post('/pub', {
       _type: 'location',
       lat: 42.3601,
       lon: -71.0589,
@@ -72,7 +72,7 @@ describe('POST /owntracks location', () => {
   });
 
   test('persists required fields to database', async () => {
-    await post('/owntracks', {
+    await post('/pub', {
       _type: 'location',
       lat: 42.3601,
       lon: -71.0589,
@@ -88,7 +88,7 @@ describe('POST /owntracks location', () => {
   });
 
   test('persists optional fields when provided', async () => {
-    await post('/owntracks', {
+    await post('/pub', {
       _type: 'location',
       lat: 42.3601,
       lon: -71.0589,
@@ -114,7 +114,7 @@ describe('POST /owntracks location', () => {
   });
 
   test('stores null for omitted optional fields', async () => {
-    await post('/owntracks', {
+    await post('/pub', {
       _type: 'location',
       lat: 42.3601,
       lon: -71.0589,
@@ -139,10 +139,11 @@ describe('POST /owntracks location', () => {
       { _type: 'location', lat: 44.0, lon: -73.0, tst: 1700000003, tid: 'AB' },
     ];
 
-    for (const loc of locations) {
-      const res = await post('/owntracks', loc);
-      expect(res.status).toBe(200);
-    }
+    await Promise.all(
+      locations.map((loc) =>
+        post('/pub', loc).then((res) => expect(res.status).toBe(200)
+      ))
+    );
 
     const rows = db.query('SELECT * FROM locations ORDER BY tst').all() as any[];
     expect(rows).toHaveLength(3);
@@ -152,7 +153,7 @@ describe('POST /owntracks location', () => {
   });
 
   test('handles negative coordinates', async () => {
-    await post('/owntracks', {
+    await post('/pub', {
       _type: 'location',
       lat: -33.8688,
       lon: 151.2093,
@@ -166,7 +167,7 @@ describe('POST /owntracks location', () => {
   });
 
   test('handles zero coordinates', async () => {
-    await post('/owntracks', {
+    await post('/pub', {
       _type: 'location',
       lat: 0,
       lon: 0,
@@ -180,7 +181,7 @@ describe('POST /owntracks location', () => {
   });
 
   test('returns 400 when _type is missing', async () => {
-    const res = await post('/owntracks', {
+    const res = await post('/pub', {
       lat: 42.0,
       lon: -71.0,
       tst: 1700000000,
@@ -188,18 +189,22 @@ describe('POST /owntracks location', () => {
     });
 
     expect(res.status).toBe(400);
-    expect(await res.json()).toEqual({ error: 'Missing _type field' });
+    const body = (await res.json()) as { error: string; issues: unknown[] };
+    expect(body.error).toBe('Invalid payload');
+    expect(body.issues).toBeDefined();
   });
 
   test('returns 400 for empty body', async () => {
-    const res = await post('/owntracks', {});
+    const res = await post('/pub', {});
 
     expect(res.status).toBe(400);
-    expect(await res.json()).toEqual({ error: 'Missing _type field' });
+    const body = (await res.json()) as { error: string; issues: unknown[] };
+    expect(body.error).toBe('Invalid payload');
+    expect(body.issues).toBeDefined();
   });
 
   test('does not persist when _type is missing', async () => {
-    await post('/owntracks', {
+    await post('/pub', {
       lat: 42.0,
       lon: -71.0,
       tst: 1700000000,
@@ -211,14 +216,14 @@ describe('POST /owntracks location', () => {
   });
 
   test('differentiates locations by tracker id', async () => {
-    await post('/owntracks', {
+    await post('/pub', {
       _type: 'location',
       lat: 42.0,
       lon: -71.0,
       tst: 1700000000,
       tid: 'AB',
     });
-    await post('/owntracks', {
+    await post('/pub', {
       _type: 'location',
       lat: 43.0,
       lon: -72.0,

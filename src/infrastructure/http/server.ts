@@ -1,10 +1,19 @@
 import express from 'express';
-import type { OwnTracksPayload } from '@/domain/types.ts';
+import { OwnTracksPayloadSchema } from '@/domain/schemas.ts';
 import { handlePayload, type Deps } from '@/application/handle-payload.ts';
 
 export function createHttpServer(deps: Deps) {
   const app = express();
   app.use(express.json());
+
+  app.use((req, res, next) => {
+    const start = Date.now();
+    res.on('finish', () => {
+      const duration = Date.now() - start;
+      deps.logger.info(`${req.method} ${req.path} ${res.statusCode} ${duration}ms`);
+    });
+    next();
+  });
 
   app.get('/', (_req, res) => {
     res.send('Location Tracker');
@@ -19,15 +28,17 @@ export function createHttpServer(deps: Deps) {
     }
   });
 
-  app.post('/owntracks', async (req, res) => {
-    const payload = req.body as OwnTracksPayload;
+  app.post('/pub', async (req, res) => {
+    const result = OwnTracksPayloadSchema.safeParse(req.body);
 
-    if (!payload._type) {
-      res.status(400).json({ error: 'Missing _type field' });
+    if (!result.success) {
+      res.status(400).json({ error: 'Invalid payload', issues: result.error.issues });
       return;
     }
 
-    await handlePayload(payload, deps);
+    deps.logger.info(`Received payload: ${JSON.stringify(result.data)}`);
+
+    await handlePayload(result.data, deps);
     res.status(200).json([]);
   });
 

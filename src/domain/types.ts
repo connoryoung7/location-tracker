@@ -248,3 +248,14 @@ export type OwnTracksPayload =
   | StatusPayload
   | CmdPayload
   | RequestPayload;
+
+export type GeofenceEvent = {
+  type: 'enter' | 'leave';
+  waypoint: WaypointPayload;
+  transition: TransitionPayload;
+};
+
+export type Geofence = {
+  waypoint: WaypointPayload;
+  isInside: boolean;
+};
