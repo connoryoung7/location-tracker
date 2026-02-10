@@ -32,6 +32,24 @@ Within the `src` folder:
 - Prefer `Bun.file` over `node:fs`'s readFile/writeFile
 - Bun.$`ls` instead of execa.
 
+## Skills
+
+When performing tasks, check for a relevant skill file in `.claude/skills/` and read it 
+before starting. Use the read tool to load the file contents first.
+
+| Task | Skill File |
+|------|-----------|
+| Creating/editing Word (.docx) files | `.claude/skills/docx/SKILL.md` |
+| Creating/editing PowerPoint (.pptx) files | `.claude/skills/pptx/SKILL.md` |
+| Creating/editing PDF files | `.claude/skills/pdf/SKILL.md` |
+
+Always read the relevant SKILL.md **before** writing any code or creating any files.
+
+## Commands
+
+- `/install [package-names...]` — Install bun packages. Installs `@types/*` packages as dev dependencies.
+- `/pr` — Create a pull request with a comprehensive description via `gh pr create`.
+
 ## Testing
 
 Use `bun test` to run tests.
