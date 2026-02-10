@@ -10,11 +10,12 @@ import { runMigrations } from '@/infrastructure/persistence/migrate.ts';
 import { SqliteLocationRepository } from '@/repository/location-repository/sqlite.repository';
 import { PostgresLocationRepository } from '@/repository/location-repository/postgres.repository';
 import { NominatimReverseGeocoder } from '@/infrastructure/reverse-geocoder/nominatim.reverse-geocoder';
+import { CoordinatePrecision } from '@/domain/types';
 import type { Deps } from '@/application/handle-payload.ts';
 
 const config = loadConfig();
 const logger = new PinoLogger();
-const reverseGeocoder = new NominatimReverseGeocoder();
+const reverseGeocoder = new NominatimReverseGeocoder(CoordinatePrecision.Building);
 
 const decryptor = config.encryptionKey
   ? await LibsodiumDecryptor.create(Buffer.from(btoa(config.encryptionKey), 'base64'))

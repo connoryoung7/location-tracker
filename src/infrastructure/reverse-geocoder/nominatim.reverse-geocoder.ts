@@ -1,6 +1,5 @@
-import { fetch } from "bun";
 import type { ReverseGeocoder } from "@/domain/ports";
-import type { Address } from "@/domain/types";
+import { type Address, type CoordinatePrecision, type ReverseGeocodingResult } from "@/domain/types";
 
 type NominatimAddress = {
     house_number?: string;
@@ -38,12 +37,24 @@ type NominatimResponse = {
 };
 
 export class NominatimReverseGeocoder implements ReverseGeocoder {
-    constructor() {}
+    private precision: CoordinatePrecision;
 
-    async reverseGeocode(lat: number, lon: number): Promise<Address | undefined> {
-        const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&addressdetails=1&lat=${lat}&lon=${lon}`);
+    constructor(precision: CoordinatePrecision) {
+        this.precision = precision;
+    }
+
+    async reverseGeocode(lat: number, lon: number): Promise<ReverseGeocodingResult> {
+        const factor = 10 ** this.precision;
+        const rlat = Math.round(lat * factor) / factor;
+        const rlon = Math.round(lon * factor) / factor;
+        const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&addressdetails=1&lat=${rlat}&lon=${rlon}`);
         const data = await response.json() as NominatimResponse;
-        if (!data?.display_name) return undefined;
+        if (!data?.display_name) {
+            return {
+                lat: rlat,
+                lon: rlon
+            }
+        };
 
         const address: Address = { displayName: data.display_name };
 
@@ -59,7 +70,11 @@ export class NominatimReverseGeocoder implements ReverseGeocoder {
             if (data.address.postcode) address.postalCode = data.address.postcode;
         }
 
-        return address;
+        return {
+            address,
+            lat: rlat,
+            lon: rlon
+        };
     }
 }
 

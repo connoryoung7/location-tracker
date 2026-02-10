@@ -9,6 +9,10 @@ Default to using Bun instead of Node.js.
 - Use `bunx <package> <command>` instead of `npx <package> <command>`
 - Bun automatically loads .env, so don't use dotenv.
 
+## Coding Standards
+
+Internal classes should be imported via path alias, not relative paths.
+
 ## Architecture
 
 Here is file structure for the codebase and the different standards that are encouraged when building the application. All the application code is found in `src` folder with exception of `index.ts` (in project root folder).

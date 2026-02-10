@@ -8,7 +8,7 @@ import { LibsodiumDecryptor } from '@/infrastructure/crypto/libsodium.decryptor'
 import type { Deps } from '@/application/handle-payload.ts';
 import type { Server } from 'node:http';
 import type { PayloadDecryptor, ReverseGeocoder } from '@/domain/ports';
-import type { Address } from '@/domain/types';
+import type { ReverseGeocodingResult } from '@/domain/types';
 
 const TEST_PORT = 0; // let OS pick an available port
 
@@ -16,7 +16,7 @@ let server: Server;
 let baseUrl: string;
 let db: Database;
 let encryptor: PayloadDecryptor;
-let mockGeocodeResult: Address | undefined;
+let mockGeocodeResult: ReverseGeocodingResult;
 const encryptionKey = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'; // 32 bytes key for testing
 
 beforeAll(async () => {
@@ -54,7 +54,7 @@ beforeEach(() => {
   db.run('DELETE FROM locations');
   db.run('DELETE FROM waypoints');
   db.run('DELETE FROM addresses');
-  mockGeocodeResult = undefined;
+  mockGeocodeResult = { lat: 0, lon: 0 };
 });
 
 function post(path: string, body: unknown) {
@@ -232,13 +232,17 @@ describe('POST /pub location', () => {
 
   test('persists address when reverse geocoder returns a result', async () => {
     mockGeocodeResult = {
-      displayName: '123 Main St, Boston, MA 02101, US',
-      street: '123 Main St',
-      city: 'Boston',
-      state: 'MA',
-      country: 'United States',
-      countryCode: 'US',
-      postalCode: '02101',
+      lat: 42.3601,
+      lon: -71.0589,
+      address: {
+        displayName: '123 Main St, Boston, MA 02101, US',
+        street: '123 Main St',
+        city: 'Boston',
+        state: 'MA',
+        country: 'United States',
+        countryCode: 'US',
+        postalCode: '02101',
+      },
     };
 
     await post('/pub', {
@@ -248,6 +252,9 @@ describe('POST /pub location', () => {
       tst: 1700000000,
       tid: 'AB',
     });
+
+    // Address save is fire-and-forget; wait for the background promise to settle
+    await new Promise((resolve) => setTimeout(resolve, 50));
 
     const row = db.query('SELECT * FROM addresses').get() as any;
     expect(row).not.toBeNull();

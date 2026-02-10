@@ -6,10 +6,13 @@ export async function handleLocation(
   deps: { repo: LocationRepository; logger: Logger; reverseGeocoder: ReverseGeocoder },
 ): Promise<void> {
   deps.logger.info(`Location: lat=${payload.lat} lon=${payload.lon} tid=${payload.tid}`);
-  const address = await deps.reverseGeocoder.reverseGeocode(payload.lat, payload.lon);
-  if (address) {
-    deps.logger.info(`Address: ${address.displayName}`);
-    await deps.repo.saveAddress(payload.lat, payload.lon, address);
-  }
+  deps.reverseGeocoder.reverseGeocode(payload.lat, payload.lon).then(async (result) => {
+    if (result.address) {
+      deps.logger.info(`Address: ${result.address.displayName}`);
+      await deps.repo.saveAddress(result.lat, result.lon, result.address);
+    }
+  }).catch((err) => {
+    deps.logger.error(`Reverse geocode failed: ${err}`);
+  });
   await deps.repo.saveLocation(payload);
 }
