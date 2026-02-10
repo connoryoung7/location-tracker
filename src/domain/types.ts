@@ -259,3 +259,13 @@ export type Geofence = {
   waypoint: WaypointPayload;
   isInside: boolean;
 };
+
+export type Address = {
+  street?: string;
+  city?: string;
+  state?: string;
+  country?: string;
+  countryCode?: string;
+  postalCode?: string;
+  displayName: string;
+};

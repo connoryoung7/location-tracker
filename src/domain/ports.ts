@@ -1,4 +1,4 @@
-import type { LocationPayload, TransitionPayload, WaypointPayload } from '@/domain/types.ts';
+import type { Address, LocationPayload, TransitionPayload, WaypointPayload } from '@/domain/types.ts';
 
 export interface LocationService {
   saveLocation(payload: LocationPayload): void | Promise<void>;
@@ -22,4 +22,8 @@ export interface Logger {
 export interface PayloadDecryptor {
   encrypt(plaintext: string): string;
   decrypt(ciphertext: string): Uint8Array;
+}
+
+export interface ReverseGeocoder {
+  reverseGeocode(lat: number, lon: number): Promise<Address | undefined>;
 }
