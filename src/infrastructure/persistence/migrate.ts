@@ -13,6 +13,6 @@ if (import.meta.main) {
   const config = loadConfig();
   const db = new Database(config.dbPath, { create: true });
   runMigrations(db);
-  console.log('Migrations complete');
+  console.warn('Migrations complete');
   db.close();
 }

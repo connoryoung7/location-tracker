@@ -7,7 +7,7 @@ import { SqliteLocationRepository } from '@/repository/location-repository/sqlit
 import { LibsodiumDecryptor } from '@/infrastructure/crypto/libsodium.decryptor';
 import type { Deps } from '@/application/handle-payload.ts';
 import type { Server } from 'node:http';
-import type { PayloadDecryptor } from '@/domain/ports';
+import type { PayloadDecryptor, ReverseGeocoder } from '@/domain/ports';
 
 const TEST_PORT = 0; // let OS pick an available port
 
@@ -29,6 +29,7 @@ beforeAll(async () => {
     repo: new SqliteLocationRepository(db),
     logger: new ConsoleLogger(),
     decryptor: encryptor,
+    reverseGeocoder: { reverseGeocode: async () => undefined } satisfies ReverseGeocoder,
   };
 
   const app = createHttpServer(deps);

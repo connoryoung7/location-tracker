@@ -1,10 +1,14 @@
 import type { LocationPayload } from '@/domain/types.ts';
-import type { LocationRepository, Logger } from '@/domain/ports.ts';
+import type { LocationRepository, Logger, ReverseGeocoder } from '@/domain/ports.ts';
 
 export async function handleLocation(
   payload: LocationPayload,
-  deps: { repo: LocationRepository; logger: Logger },
+  deps: { repo: LocationRepository; logger: Logger; reverseGeocoder: ReverseGeocoder },
 ): Promise<void> {
   deps.logger.info(`Location: lat=${payload.lat} lon=${payload.lon} tid=${payload.tid}`);
+  const address = await deps.reverseGeocoder.reverseGeocode(payload.lat, payload.lon);
+  if (address) {
+    deps.logger.info(`Address: ${address.displayName}`);
+  }
   await deps.repo.saveLocation(payload);
 }
