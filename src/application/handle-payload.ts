@@ -16,11 +16,7 @@ export async function handlePayload(payload: OwnTracksPayload, deps: Deps): Prom
     try {
       const decrypted = deps.decryptor.decrypt(payload.data);
       const decoded = new TextDecoder().decode(decrypted);
-      deps.logger.info(`Decrypted payload: ${decoded}`);
-      const parsed = JSON.parse(decoded) as OwnTracksPayload;
-
-      deps.logger.info(`Decrypted payload: ${JSON.stringify(parsed)}`);
-      payload = parsed;
+      payload = JSON.parse(decoded) as OwnTracksPayload;
     } catch (err) {
       deps.logger.error('Failed to decrypt payload', err);
       return;
