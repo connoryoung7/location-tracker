@@ -4,31 +4,42 @@ import { createHttpServer } from '@/infrastructure/http/server.ts';
 import { ConsoleLogger } from '@/infrastructure/logging/console.logger.ts';
 import { runMigrations } from '@/infrastructure/persistence/migrate.ts';
 import { SqliteLocationRepository } from '@/repository/location-repository/sqlite.repository';
+import { LibsodiumDecryptor } from '@/infrastructure/crypto/libsodium.decryptor';
 import type { Deps } from '@/application/handle-payload.ts';
 import type { Server } from 'node:http';
+import type { PayloadDecryptor } from '@/domain/ports';
 
 const TEST_PORT = 0; // let OS pick an available port
 
 let server: Server;
 let baseUrl: string;
 let db: Database;
+let encryptor: PayloadDecryptor;
+const encryptionKey = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'; // 32 bytes key for testing
 
-beforeAll((done) => {
+beforeAll(async () => {
+  process.env.ENCRYPTION_KEY = encryptionKey;
+
+  encryptor = await LibsodiumDecryptor.create(Buffer.from(btoa(encryptionKey), 'base64'));
+
   db = new Database(':memory:');
   runMigrations(db);
 
   const deps: Deps = {
     repo: new SqliteLocationRepository(db),
     logger: new ConsoleLogger(),
+    decryptor: encryptor,
   };
 
   const app = createHttpServer(deps);
-  server = app.listen(TEST_PORT, () => {
-    const addr = server.address();
-    if (addr && typeof addr === 'object') {
-      baseUrl = `http://localhost:${addr.port}`;
-    }
-    done();
+  await new Promise<void>((resolve) => {
+    server = app.listen(TEST_PORT, () => {
+      const addr = server.address();
+      if (addr && typeof addr === 'object') {
+        baseUrl = `http://localhost:${addr.port}`;
+      }
+      resolve();
+    });
   });
 });
 
@@ -38,6 +49,7 @@ afterAll(() => {
 
 beforeEach(() => {
   db.run('DELETE FROM locations');
+  db.run('DELETE FROM waypoints');
 });
 
 function post(path: string, body: unknown) {
@@ -140,9 +152,7 @@ describe('POST /pub location', () => {
     ];
 
     await Promise.all(
-      locations.map((loc) =>
-        post('/pub', loc).then((res) => expect(res.status).toBe(200)
-      ))
+      locations.map((loc) => post('/pub', loc).then((res) => expect(res.status).toBe(200))),
     );
 
     const rows = db.query('SELECT * FROM locations ORDER BY tst').all() as any[];
@@ -235,5 +245,157 @@ describe('POST /pub location', () => {
     expect(rows).toHaveLength(2);
     expect(rows[0]!.tid).toBe('AB');
     expect(rows[1]!.tid).toBe('CD');
+  });
+});
+
+describe('POST /pub waypoint', () => {
+  test('returns 200 for valid waypoint', async () => {
+    const res = await post('/pub', {
+      _type: 'waypoint',
+      desc: 'Home',
+      tst: 1700000000,
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual([]);
+  });
+
+  test('persists required fields to database', async () => {
+    await post('/pub', {
+      _type: 'waypoint',
+      desc: 'Home',
+      tst: 1700000000,
+    });
+
+    const row = db.query('SELECT * FROM waypoints').get() as any;
+    expect(row.desc).toBe('Home');
+    expect(row.tst).toBe(1700000000);
+  });
+
+  test('persists optional fields when provided', async () => {
+    await post('/pub', {
+      _type: 'waypoint',
+      desc: 'Office',
+      tst: 1700000000,
+      lat: 42.3601,
+      lon: -71.0589,
+      rad: 150,
+      rid: 'region-1',
+      uuid: 'FDA50693-A4E2-4FB1-AFCF-C6EB07647825',
+      major: 10001,
+      minor: 19641,
+    });
+
+    const row = db.query('SELECT * FROM waypoints').get() as any;
+    expect(row.desc).toBe('Office');
+    expect(row.tst).toBe(1700000000);
+    expect(row.lat).toBe(42.3601);
+    expect(row.lon).toBe(-71.0589);
+    expect(row.rad).toBe(150);
+    expect(row.rid).toBe('region-1');
+    expect(row.uuid).toBe('FDA50693-A4E2-4FB1-AFCF-C6EB07647825');
+    expect(row.major).toBe(10001);
+    expect(row.minor).toBe(19641);
+  });
+
+  test('stores null for omitted optional fields', async () => {
+    await post('/pub', {
+      _type: 'waypoint',
+      desc: 'Home',
+      tst: 1700000000,
+    });
+
+    const row = db.query('SELECT * FROM waypoints').get() as any;
+    expect(row.lat).toBeNull();
+    expect(row.lon).toBeNull();
+    expect(row.rad).toBeNull();
+    expect(row.uuid).toBeNull();
+    expect(row.major).toBeNull();
+    expect(row.minor).toBeNull();
+    expect(row.rid).toBeNull();
+  });
+});
+
+describe('POST /pub encrypted location', () => {
+  test('decrypts and persists an encrypted location payload', async () => {
+    const location = {
+      _type: 'location',
+      lat: 42.3601,
+      lon: -71.0589,
+      tst: 1700000000,
+      tid: 'AB',
+    };
+
+    const res = await post('/pub', {
+      _type: 'encrypted',
+      data: encryptor.encrypt(JSON.stringify(location)),
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual([]);
+
+    const row = db.query('SELECT * FROM locations').get() as any;
+    expect(row.lat).toBe(42.3601);
+    expect(row.lon).toBe(-71.0589);
+    expect(row.tst).toBe(1700000000);
+    expect(row.tid).toBe('AB');
+  });
+});
+
+describe('POST /pub encrypted waypoint', () => {
+  test('decrypts and persists an encrypted waypoint payload', async () => {
+    const waypoint = {
+      _type: 'waypoint',
+      desc: 'Home',
+      tst: 1700000000,
+      lat: 42.3601,
+      lon: -71.0589,
+      rad: 100,
+    };
+
+    const res = await post('/pub', {
+      _type: 'encrypted',
+      data: encryptor.encrypt(JSON.stringify(waypoint)),
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual([]);
+
+    const row = db.query('SELECT * FROM waypoints').get() as any;
+    expect(row.desc).toBe('Home');
+    expect(row.tst).toBe(1700000000);
+    expect(row.lat).toBe(42.3601);
+    expect(row.lon).toBe(-71.0589);
+    expect(row.rad).toBe(100);
+  });
+});
+
+describe('POST /pub encrypted invalid payloads', () => {
+  test('returns 200 but does not persist when decrypted data is not valid JSON', async () => {
+    const res = await post('/pub', {
+      _type: 'encrypted',
+      data: encryptor.encrypt('not valid json{{{'),
+    });
+
+    expect(res.status).toBe(200);
+
+    const locations = db.query('SELECT COUNT(*) as c FROM locations').get() as any;
+    const waypoints = db.query('SELECT COUNT(*) as c FROM waypoints').get() as any;
+    expect(locations.c).toBe(0);
+    expect(waypoints.c).toBe(0);
+  });
+
+  test('returns 200 but does not persist when decrypted data is valid JSON but not an OwnTracks type', async () => {
+    const res = await post('/pub', {
+      _type: 'encrypted',
+      data: encryptor.encrypt(JSON.stringify({ _type: 'unknown', foo: 'bar' })),
+    });
+
+    expect(res.status).toBe(200);
+
+    const locations = db.query('SELECT COUNT(*) as c FROM locations').get() as any;
+    const waypoints = db.query('SELECT COUNT(*) as c FROM waypoints').get() as any;
+    expect(locations.c).toBe(0);
+    expect(waypoints.c).toBe(0);
   });
 });

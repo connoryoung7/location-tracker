@@ -1,5 +1,5 @@
 import type { Database } from 'bun:sqlite';
-import type { LocationPayload, TransitionPayload } from '@/domain/types.ts';
+import type { LocationPayload, TransitionPayload, WaypointPayload } from '@/domain/types.ts';
 import type { LocationRepository } from '@/domain/ports.ts';
 
 export class SqliteLocationRepository implements LocationRepository {
@@ -43,6 +43,24 @@ export class SqliteLocationRepository implements LocationRepository {
         payload.tid ?? null,
         payload.desc ?? null,
         payload.t ?? null,
+        payload.rid ?? null,
+      ],
+    );
+  }
+
+  saveWaypoint(payload: WaypointPayload): void {
+    this.db.run(
+      `INSERT INTO waypoints ("desc", tst, lat, lon, rad, uuid, major, minor, rid)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        payload.desc,
+        payload.tst,
+        payload.lat ?? null,
+        payload.lon ?? null,
+        payload.rad ?? null,
+        payload.uuid ?? null,
+        payload.major ?? null,
+        payload.minor ?? null,
         payload.rid ?? null,
       ],
     );

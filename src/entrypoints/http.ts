@@ -3,6 +3,8 @@ import { Database } from 'bun:sqlite';
 
 import { loadConfig } from '@/config.ts';
 import { createHttpServer } from '@/infrastructure/http/server.ts';
+import { LibsodiumDecryptor } from '@/infrastructure/crypto/libsodium.decryptor.ts';
+import { NoopDecryptor } from '@/infrastructure/crypto/noop.decryptor.ts';
 import { PinoLogger } from '@/infrastructure/logging/pino.logger.ts';
 import { runMigrations } from '@/infrastructure/persistence/migrate.ts';
 import { SqliteLocationRepository } from '@/repository/location-repository/sqlite.repository';
@@ -11,6 +13,10 @@ import type { Deps } from '@/application/handle-payload.ts';
 
 const config = loadConfig();
 const logger = new PinoLogger();
+
+const decryptor = config.encryptionKey
+  ? await LibsodiumDecryptor.create(Buffer.from(btoa(config.encryptionKey), 'base64'))
+  : new NoopDecryptor();
 
 let deps: Deps;
 
@@ -22,6 +28,7 @@ if (config.databaseUrl) {
   deps = {
     repo,
     logger,
+    decryptor,
   };
 } else {
   const db = new Database(config.dbPath, { create: true });
@@ -29,6 +36,7 @@ if (config.databaseUrl) {
   deps = {
     repo: new SqliteLocationRepository(db),
     logger,
+    decryptor,
   };
 }
 
