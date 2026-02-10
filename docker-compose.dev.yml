@@ -16,13 +16,19 @@ services:
       retries: 5
 
   http:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    command: bun run dev
     ports:
       - "3000:3000"
+    volumes:
+      - .:/app
+      - /app/node_modules
     environment:
       DATABASE_URL: postgres://location_tracker:location_tracker@db:5432/location_tracker
       PORT: "3000"
-      ENCRYPTION_KEY: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" # 32 bytes key for testing
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
     depends_on:
       db:
         condition: service_healthy
