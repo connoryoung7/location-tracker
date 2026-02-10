@@ -10,6 +10,7 @@ export interface LocationRepository {
   saveLocation(payload: LocationPayload): void | Promise<void>;
   saveTransition(payload: TransitionPayload): void | Promise<void>;
   saveWaypoint(payload: WaypointPayload): void | Promise<void>;
+  saveAddress(lat: number, lon: number, address: Address): void | Promise<void>;
   healthCheck(): Promise<void>;
 }
 

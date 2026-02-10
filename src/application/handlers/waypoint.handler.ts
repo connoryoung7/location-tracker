@@ -10,6 +10,7 @@ export async function handleWaypoint(
     const address = await deps.reverseGeocoder.reverseGeocode(payload.lat, payload.lon);
     if (address) {
       deps.logger.info(`Address: ${address.displayName}`);
+      await deps.repo.saveAddress(payload.lat, payload.lon, address);
     }
   }
   await deps.repo.saveWaypoint(payload);

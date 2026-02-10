@@ -8,6 +8,7 @@ import { LibsodiumDecryptor } from '@/infrastructure/crypto/libsodium.decryptor'
 import type { Deps } from '@/application/handle-payload.ts';
 import type { Server } from 'node:http';
 import type { PayloadDecryptor, ReverseGeocoder } from '@/domain/ports';
+import type { Address } from '@/domain/types';
 
 const TEST_PORT = 0; // let OS pick an available port
 
@@ -15,6 +16,7 @@ let server: Server;
 let baseUrl: string;
 let db: Database;
 let encryptor: PayloadDecryptor;
+let mockGeocodeResult: Address | undefined;
 const encryptionKey = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'; // 32 bytes key for testing
 
 beforeAll(async () => {
@@ -29,7 +31,7 @@ beforeAll(async () => {
     repo: new SqliteLocationRepository(db),
     logger: new ConsoleLogger(),
     decryptor: encryptor,
-    reverseGeocoder: { reverseGeocode: async () => undefined } satisfies ReverseGeocoder,
+    reverseGeocoder: { reverseGeocode: async () => mockGeocodeResult } satisfies ReverseGeocoder,
   };
 
   const app = createHttpServer(deps);
@@ -51,6 +53,8 @@ afterAll(() => {
 beforeEach(() => {
   db.run('DELETE FROM locations');
   db.run('DELETE FROM waypoints');
+  db.run('DELETE FROM addresses');
+  mockGeocodeResult = undefined;
 });
 
 function post(path: string, body: unknown) {
@@ -223,6 +227,51 @@ describe('POST /pub location', () => {
     });
 
     const count = db.query('SELECT COUNT(*) as c FROM locations').get() as any;
+    expect(count.c).toBe(0);
+  });
+
+  test('persists address when reverse geocoder returns a result', async () => {
+    mockGeocodeResult = {
+      displayName: '123 Main St, Boston, MA 02101, US',
+      street: '123 Main St',
+      city: 'Boston',
+      state: 'MA',
+      country: 'United States',
+      countryCode: 'US',
+      postalCode: '02101',
+    };
+
+    await post('/pub', {
+      _type: 'location',
+      lat: 42.3601,
+      lon: -71.0589,
+      tst: 1700000000,
+      tid: 'AB',
+    });
+
+    const row = db.query('SELECT * FROM addresses').get() as any;
+    expect(row).not.toBeNull();
+    expect(row.lat).toBe(42.3601);
+    expect(row.lon).toBe(-71.0589);
+    expect(row.display_name).toBe('123 Main St, Boston, MA 02101, US');
+    expect(row.street).toBe('123 Main St');
+    expect(row.city).toBe('Boston');
+    expect(row.state).toBe('MA');
+    expect(row.country).toBe('United States');
+    expect(row.country_code).toBe('US');
+    expect(row.postal_code).toBe('02101');
+  });
+
+  test('does not persist address when reverse geocoder returns undefined', async () => {
+    await post('/pub', {
+      _type: 'location',
+      lat: 42.3601,
+      lon: -71.0589,
+      tst: 1700000000,
+      tid: 'AB',
+    });
+
+    const count = db.query('SELECT COUNT(*) as c FROM addresses').get() as any;
     expect(count.c).toBe(0);
   });
 

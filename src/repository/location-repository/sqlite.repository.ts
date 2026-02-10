@@ -1,5 +1,5 @@
 import type { Database } from 'bun:sqlite';
-import type { LocationPayload, TransitionPayload, WaypointPayload } from '@/domain/types.ts';
+import type { Address, LocationPayload, TransitionPayload, WaypointPayload } from '@/domain/types.ts';
 import type { LocationRepository } from '@/domain/ports.ts';
 
 export class SqliteLocationRepository implements LocationRepository {
@@ -62,6 +62,24 @@ export class SqliteLocationRepository implements LocationRepository {
         payload.major ?? null,
         payload.minor ?? null,
         payload.rid ?? null,
+      ],
+    );
+  }
+
+  saveAddress(lat: number, lon: number, address: Address): void {
+    this.db.run(
+      `INSERT INTO addresses (lat, lon, display_name, street, city, state, country, country_code, postal_code)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        lat,
+        lon,
+        address.displayName,
+        address.street ?? null,
+        address.city ?? null,
+        address.state ?? null,
+        address.country ?? null,
+        address.countryCode ?? null,
+        address.postalCode ?? null,
       ],
     );
   }

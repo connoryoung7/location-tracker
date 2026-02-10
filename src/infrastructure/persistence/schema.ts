@@ -31,6 +31,20 @@ export const waypoints = sqliteTable('waypoints', {
   created_at: text('created_at').default(sql`(datetime('now'))`),
 });
 
+export const addresses = sqliteTable('addresses', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  lat: real('lat').notNull(),
+  lon: real('lon').notNull(),
+  display_name: text('display_name').notNull(),
+  street: text('street'),
+  city: text('city'),
+  state: text('state'),
+  country: text('country'),
+  country_code: text('country_code'),
+  postal_code: text('postal_code'),
+  created_at: text('created_at').default(sql`(datetime('now'))`),
+});
+
 export const transitions = sqliteTable('transitions', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   tst: integer('tst').notNull(),
