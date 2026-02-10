@@ -42,6 +42,7 @@ before starting. Use the read tool to load the file contents first.
 | Creating/editing Word (.docx) files | `.claude/skills/docx/SKILL.md` |
 | Creating/editing PowerPoint (.pptx) files | `.claude/skills/pptx/SKILL.md` |
 | Creating/editing PDF files | `.claude/skills/pdf/SKILL.md` |
+| Creating/editing Dockerfiles | `.claude/skills/create-dockerfile/SKILL.md` |
 
 Always read the relevant SKILL.md **before** writing any code or creating any files.
 
