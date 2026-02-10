@@ -78,6 +78,14 @@ compose-up:
 compose-down:
     docker compose down
 
+# Start dev Docker Compose services
+up:
+    docker compose -f docker-compose.dev.yml up -d --build
+
+# Stop dev Docker Compose services
+down:
+    docker compose -f docker-compose.dev.yml down
+
 # Follow Docker Compose logs
 compose-logs:
     docker compose logs -f
