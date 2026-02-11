@@ -12,6 +12,9 @@ import { PostgresLocationRepository } from '@/repository/location-repository/pos
 import { NominatimReverseGeocoder } from '@/infrastructure/reverse-geocoder/nominatim.reverse-geocoder';
 import { CoordinatePrecision } from '@/domain/types';
 import type { Deps } from '@/application/handle-payload.ts';
+import type { EventPublisher } from '@/domain/ports.ts';
+
+const eventPublisher: EventPublisher = { publish() {} };
 
 const config = loadConfig();
 const logger = new PinoLogger();
@@ -33,6 +36,7 @@ if (config.databaseUrl) {
     logger,
     decryptor,
     reverseGeocoder,
+    eventPublisher,
   };
 } else {
   const db = new Database(config.dbPath, { create: true });
@@ -42,6 +46,7 @@ if (config.databaseUrl) {
     logger,
     decryptor,
     reverseGeocoder,
+    eventPublisher,
   };
 }
 

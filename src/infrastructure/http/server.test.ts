@@ -32,6 +32,7 @@ beforeAll(async () => {
     logger: new ConsoleLogger(),
     decryptor: encryptor,
     reverseGeocoder: { reverseGeocode: async () => mockGeocodeResult } satisfies ReverseGeocoder,
+    eventPublisher: { publish() {} },
   };
 
   const app = createHttpServer(deps);

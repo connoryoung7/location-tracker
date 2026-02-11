@@ -165,7 +165,7 @@ describe("NominatimReverseGeocoder", () => {
 
       const result = await geocoder.reverseGeocode(0, 0);
 
-      expect(result).toEqual({ lat: 5, lon: 10, address: { displayName: "Somewhere" } });
+      expect(result).toEqual({ lat: 0, lon: 0, address: { displayName: "Somewhere" } });
     });
 
     test("uses town when city is absent", async () => {

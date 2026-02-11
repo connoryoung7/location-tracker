@@ -1,5 +1,5 @@
 /** Base type shared by all OwnTracks payloads */
-export type OwnTracksBase = {
+type OwnTracksBase = {
   _type: string;
 };
 
@@ -248,12 +248,6 @@ export type OwnTracksPayload =
   | StatusPayload
   | CmdPayload
   | RequestPayload;
-
-export type GeofenceEvent = {
-  type: 'enter' | 'leave';
-  waypoint: WaypointPayload;
-  transition: TransitionPayload;
-};
 
 export type Geofence = {
   waypoint: WaypointPayload;
