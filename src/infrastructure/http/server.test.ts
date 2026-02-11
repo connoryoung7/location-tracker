@@ -375,6 +375,89 @@ describe('POST /pub waypoint', () => {
     expect(row.minor).toBeNull();
     expect(row.rid).toBeNull();
   });
+
+  test('persists address when reverse geocoder returns a result', async () => {
+    mockGeocodeResult = {
+      lat: 42.3601,
+      lon: -71.0589,
+      address: {
+        displayName: '456 Elm St, Cambridge, MA 02139, US',
+        street: '456 Elm St',
+        city: 'Cambridge',
+        state: 'MA',
+        country: 'United States',
+        countryCode: 'US',
+        postalCode: '02139',
+      },
+    };
+
+    await post('/pub', {
+      _type: 'waypoint',
+      desc: 'Office',
+      tst: 1700000000,
+      lat: 42.3601,
+      lon: -71.0589,
+      rad: 150,
+    });
+
+    // Address save is fire-and-forget; wait for the background promise to settle
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    const row = db.query('SELECT * FROM addresses').get() as any;
+    expect(row).not.toBeNull();
+    expect(row.lat).toBe(42.3601);
+    expect(row.lon).toBe(-71.0589);
+    expect(row.display_name).toBe('456 Elm St, Cambridge, MA 02139, US');
+    expect(row.street).toBe('456 Elm St');
+    expect(row.city).toBe('Cambridge');
+    expect(row.state).toBe('MA');
+    expect(row.country).toBe('United States');
+    expect(row.country_code).toBe('US');
+    expect(row.postal_code).toBe('02139');
+  });
+
+  test('does not persist address when reverse geocoder returns no address', async () => {
+    await post('/pub', {
+      _type: 'waypoint',
+      desc: 'Office',
+      tst: 1700000000,
+      lat: 42.3601,
+      lon: -71.0589,
+      rad: 150,
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    const count = db.query('SELECT COUNT(*) as c FROM addresses').get() as any;
+    expect(count.c).toBe(0);
+  });
+
+  test('does not call reverse geocoder when lat/lon are missing', async () => {
+    mockGeocodeResult = {
+      lat: 0,
+      lon: 0,
+      address: {
+        displayName: 'Should not appear',
+        street: 'Nope',
+        city: 'Nope',
+        state: 'Nope',
+        country: 'Nope',
+        countryCode: 'NO',
+        postalCode: '00000',
+      },
+    };
+
+    await post('/pub', {
+      _type: 'waypoint',
+      desc: 'Home',
+      tst: 1700000000,
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    const count = db.query('SELECT COUNT(*) as c FROM addresses').get() as any;
+    expect(count.c).toBe(0);
+  });
 });
 
 describe('POST /pub encrypted location', () => {
