@@ -16,7 +16,7 @@ export function createHttpServer(deps: Deps) {
   });
 
   app.get('/', (_req, res) => {
-    res.send('Location Tracker');
+    res.send('Location Trackers');
   });
 
   app.get('/_health', async (_req, res) => {

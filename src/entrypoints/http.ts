@@ -9,10 +9,13 @@ import { PinoLogger } from '@/infrastructure/logging/pino.logger.ts';
 import { runMigrations } from '@/infrastructure/persistence/migrate.ts';
 import { SqliteLocationRepository } from '@/repository/location-repository/sqlite.repository';
 import { PostgresLocationRepository } from '@/repository/location-repository/postgres.repository';
+import { NominatimReverseGeocoder } from '@/infrastructure/reverse-geocoder/nominatim.reverse-geocoder';
+import { CoordinatePrecision } from '@/domain/types';
 import type { Deps } from '@/application/handle-payload.ts';
 
 const config = loadConfig();
 const logger = new PinoLogger();
+const reverseGeocoder = new NominatimReverseGeocoder(CoordinatePrecision.Building);
 
 const decryptor = config.encryptionKey
   ? await LibsodiumDecryptor.create(Buffer.from(btoa(config.encryptionKey), 'base64'))
@@ -21,7 +24,7 @@ const decryptor = config.encryptionKey
 let deps: Deps;
 
 if (config.databaseUrl) {
-  console.log('Using Postgres database at', config.databaseUrl);
+  logger.info(`Using Postgres database at ${config.databaseUrl}`);
   const sql = new SQL(config.databaseUrl);
   const repo = new PostgresLocationRepository(sql);
   await repo.migrate();
@@ -29,6 +32,7 @@ if (config.databaseUrl) {
     repo,
     logger,
     decryptor,
+    reverseGeocoder,
   };
 } else {
   const db = new Database(config.dbPath, { create: true });
@@ -37,6 +41,7 @@ if (config.databaseUrl) {
     repo: new SqliteLocationRepository(db),
     logger,
     decryptor,
+    reverseGeocoder,
   };
 }
 

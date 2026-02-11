@@ -259,3 +259,36 @@ export type Geofence = {
   waypoint: WaypointPayload;
   isInside: boolean;
 };
+
+export enum CoordinatePrecision {
+  /** ~111 km — country/region level */
+  Country = 0,
+  /** ~11 km — city level */
+  City = 1,
+  /** ~1.1 km — neighborhood level */
+  Neighborhood = 2,
+  /** ~110 m — street/block level */
+  Street = 3,
+  /** ~11 m — building level */
+  Building = 4,
+  /** ~1.1 m — room level */
+  Room = 5,
+  /** ~0.11 m — very precise */
+  VeryPrecise = 6,
+}
+
+export type Address = {
+  street?: string;
+  city?: string;
+  state?: string;
+  country?: string;
+  countryCode?: string;
+  postalCode?: string;
+  displayName: string;
+};
+
+export type ReverseGeocodingResult = {
+  address?: Address;
+  lat: number;
+  lon: number;
+};

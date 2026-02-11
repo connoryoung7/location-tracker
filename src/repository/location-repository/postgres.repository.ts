@@ -1,5 +1,5 @@
 import type { SQL } from 'bun';
-import type { LocationPayload, TransitionPayload, WaypointPayload } from '@/domain/types.ts';
+import type { Address, LocationPayload, TransitionPayload, WaypointPayload } from '@/domain/types.ts';
 import type { LocationRepository } from '@/domain/ports.ts';
 
 export class PostgresLocationRepository implements LocationRepository {
@@ -63,6 +63,23 @@ export class PostgresLocationRepository implements LocationRepository {
     `;
   }
 
+  async saveAddress(lat: number, lon: number, address: Address): Promise<void> {
+    await this.conn`
+      INSERT INTO addresses (lat, lon, display_name, street, city, state, country, country_code, postal_code)
+      VALUES (
+        ${lat},
+        ${lon},
+        ${address.displayName},
+        ${address.street ?? null},
+        ${address.city ?? null},
+        ${address.state ?? null},
+        ${address.country ?? null},
+        ${address.countryCode ?? null},
+        ${address.postalCode ?? null}
+      )
+    `;
+  }
+
   async migrate(): Promise<void> {
     await this.conn`
       CREATE TABLE IF NOT EXISTS locations (
@@ -93,6 +110,21 @@ export class PostgresLocationRepository implements LocationRepository {
         major INTEGER,
         minor INTEGER,
         rid TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `;
+    await this.conn`
+      CREATE TABLE IF NOT EXISTS addresses (
+        id SERIAL PRIMARY KEY,
+        lat DOUBLE PRECISION NOT NULL,
+        lon DOUBLE PRECISION NOT NULL,
+        display_name TEXT NOT NULL,
+        street TEXT,
+        city TEXT,
+        state TEXT,
+        country TEXT,
+        country_code TEXT,
+        postal_code TEXT,
         created_at TIMESTAMPTZ DEFAULT NOW()
       )
     `;

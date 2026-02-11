@@ -9,6 +9,10 @@ Default to using Bun instead of Node.js.
 - Use `bunx <package> <command>` instead of `npx <package> <command>`
 - Bun automatically loads .env, so don't use dotenv.
 
+## Coding Standards
+
+Internal classes should be imported via path alias, not relative paths.
+
 ## Architecture
 
 Here is file structure for the codebase and the different standards that are encouraged when building the application. All the application code is found in `src` folder with exception of `index.ts` (in project root folder).
@@ -31,6 +35,25 @@ Within the `src` folder:
 - `WebSocket` is built-in. Don't use `ws`.
 - Prefer `Bun.file` over `node:fs`'s readFile/writeFile
 - Bun.$`ls` instead of execa.
+
+## Skills
+
+When performing tasks, check for a relevant skill file in `.claude/skills/` and read it 
+before starting. Use the read tool to load the file contents first.
+
+| Task | Skill File |
+|------|-----------|
+| Creating/editing Word (.docx) files | `.claude/skills/docx/SKILL.md` |
+| Creating/editing PowerPoint (.pptx) files | `.claude/skills/pptx/SKILL.md` |
+| Creating/editing PDF files | `.claude/skills/pdf/SKILL.md` |
+| Creating/editing Dockerfiles | `.claude/skills/create-dockerfile/SKILL.md` |
+
+Always read the relevant SKILL.md **before** writing any code or creating any files.
+
+## Commands
+
+- `/install [package-names...]` — Install bun packages. Installs `@types/*` packages as dev dependencies.
+- `/pr` — Create a pull request with a comprehensive description via `gh pr create`.
 
 ## Testing
 

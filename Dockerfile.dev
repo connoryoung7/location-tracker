@@ -9,4 +9,4 @@ RUN bun install
 
 EXPOSE 3000
 
-CMD ["bun", "--hot", "src/entrypoints/http.ts"]
+CMD ["bun", "run", "dev"]
