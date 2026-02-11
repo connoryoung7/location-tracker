@@ -33,3 +33,7 @@ export interface ReverseGeocoder {
 export interface EventPublisher {
   publish(event: DomainEvent): void | Promise<void>;
 }
+
+export interface NotificationSender {
+  sendNotification(subject: string, body: string): Promise<void>;
+}
