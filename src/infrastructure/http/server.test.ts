@@ -1,4 +1,4 @@
-import { test, expect, describe, beforeAll, afterAll, beforeEach } from 'bun:test';
+import { test, expect, describe, beforeAll, afterAll, beforeEach, mock } from 'bun:test';
 import { Database } from 'bun:sqlite';
 import { createHttpServer } from '@/infrastructure/http/server.ts';
 import { ConsoleLogger } from '@/infrastructure/logging/console.logger.ts';
@@ -9,6 +9,7 @@ import type { Deps } from '@/application/handle-payload.ts';
 import type { Server } from 'node:http';
 import type { PayloadDecryptor, ReverseGeocoder } from '@/domain/ports';
 import type { ReverseGeocodingResult } from '@/domain/types';
+import type { DomainEvent } from '@/domain/events';
 
 const TEST_PORT = 0; // let OS pick an available port
 
@@ -17,6 +18,7 @@ let baseUrl: string;
 let db: Database;
 let encryptor: PayloadDecryptor;
 let mockGeocodeResult: ReverseGeocodingResult;
+const mockPublish = mock<(event: DomainEvent) => void>(() => {});
 const encryptionKey = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'; // 32 bytes key for testing
 
 beforeAll(async () => {
@@ -32,7 +34,7 @@ beforeAll(async () => {
     logger: new ConsoleLogger(),
     decryptor: encryptor,
     reverseGeocoder: { reverseGeocode: async () => mockGeocodeResult } satisfies ReverseGeocoder,
-    eventPublisher: { publish() {} },
+    eventPublisher: { publish: mockPublish },
   };
 
   const app = createHttpServer(deps);
@@ -56,6 +58,7 @@ beforeEach(() => {
   db.run('DELETE FROM waypoints');
   db.run('DELETE FROM addresses');
   mockGeocodeResult = { lat: 0, lon: 0 };
+  mockPublish.mockClear();
 });
 
 function post(path: string, body: unknown) {
@@ -455,5 +458,137 @@ describe('POST /pub encrypted invalid payloads', () => {
     const waypoints = db.query('SELECT COUNT(*) as c FROM waypoints').get() as any;
     expect(locations.c).toBe(0);
     expect(waypoints.c).toBe(0);
+  });
+});
+
+describe('POST /pub transition', () => {
+  test('publishes a UserWaypointUpdatedEvent on enter transition', async () => {
+    const res = await post('/pub', {
+      _type: 'transition',
+      tst: 1700000000,
+      wtst: 1699999000,
+      acc: 10,
+      event: 'enter',
+      lat: 42.3601,
+      lon: -71.0589,
+      tid: 'AB',
+      desc: 'Office',
+      t: 'c',
+      rid: 'region-1',
+    });
+
+    expect(res.status).toBe(200);
+    expect(mockPublish).toHaveBeenCalledTimes(1);
+    expect(mockPublish.mock.calls[0]![0]).toEqual({
+      _type: 'user-waypoint.updated',
+      update_type: 'enter',
+      waypoint: {
+        _type: 'waypoint',
+        desc: 'Office',
+        tst: 1699999000,
+        rid: 'region-1',
+      },
+      transition: {
+        _type: 'transition',
+        tst: 1700000000,
+        wtst: 1699999000,
+        acc: 10,
+        event: 'enter',
+        lat: 42.3601,
+        lon: -71.0589,
+        tid: 'AB',
+        desc: 'Office',
+        t: 'c',
+        rid: 'region-1',
+      },
+    });
+  });
+
+  test('publishes a UserWaypointUpdatedEvent on leave transition', async () => {
+    await post('/pub', {
+      _type: 'transition',
+      tst: 1700001000,
+      wtst: 1699999000,
+      acc: 5,
+      event: 'leave',
+      desc: 'Home',
+      rid: 'region-2',
+    });
+
+    expect(mockPublish).toHaveBeenCalledTimes(1);
+    expect(mockPublish.mock.calls[0]![0]).toMatchObject({
+      _type: 'user-waypoint.updated',
+      update_type: 'leave',
+      waypoint: { desc: 'Home', tst: 1699999000 },
+    });
+  });
+
+  test('does not publish an event for location payloads', async () => {
+    await post('/pub', {
+      _type: 'location',
+      lat: 42.3601,
+      lon: -71.0589,
+      tst: 1700000000,
+      tid: 'AB',
+    });
+
+    expect(mockPublish).not.toHaveBeenCalled();
+  });
+
+  test('publishes event when transition is encrypted', async () => {
+    const transition = {
+      _type: 'transition' as const,
+      tst: 1700000000,
+      wtst: 1699999000,
+      acc: 10,
+      event: 'enter' as const,
+      lat: 42.3601,
+      lon: -71.0589,
+      tid: 'AB',
+      desc: 'Office',
+      t: 'c' as const,
+      rid: 'region-1',
+    };
+
+    const res = await post('/pub', {
+      _type: 'encrypted',
+      data: encryptor.encrypt(JSON.stringify(transition)),
+    });
+
+    expect(res.status).toBe(200);
+    expect(mockPublish).toHaveBeenCalledTimes(1);
+    expect(mockPublish.mock.calls[0]![0]).toEqual({
+      _type: 'user-waypoint.updated',
+      update_type: 'enter',
+      waypoint: {
+        _type: 'waypoint',
+        desc: 'Office',
+        tst: 1699999000,
+        rid: 'region-1',
+      },
+      transition,
+    });
+  });
+
+  test('publishes leave event when encrypted transition has minimal fields', async () => {
+    const transition = {
+      _type: 'transition',
+      tst: 1700001000,
+      wtst: 1699999000,
+      acc: 5,
+      event: 'leave',
+    };
+
+    await post('/pub', {
+      _type: 'encrypted',
+      data: encryptor.encrypt(JSON.stringify(transition)),
+    });
+
+    expect(mockPublish).toHaveBeenCalledTimes(1);
+    expect(mockPublish.mock.calls[0]![0]).toMatchObject({
+      _type: 'user-waypoint.updated',
+      update_type: 'leave',
+      waypoint: { _type: 'waypoint', desc: '', tst: 1699999000 },
+    });
   });
 });
