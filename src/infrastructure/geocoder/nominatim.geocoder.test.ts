@@ -1,5 +1,5 @@
 import { test, expect, describe, spyOn, beforeEach } from "bun:test";
-import { NominatimReverseGeocoder } from "@/infrastructure/reverse-geocoder/nominatim.reverse-geocoder";
+import { NominatimGeocoder } from "@/infrastructure/geocoder/nominatim.geocoder";
 import { CoordinatePrecision } from "@/domain/types";
 
 function jsonResponse(body: object) {
@@ -30,11 +30,11 @@ beforeEach(() => {
   fetchSpy.mockReset();
 });
 
-describe("NominatimReverseGeocoder", () => {
+describe("NominatimGeocoder", () => {
   describe("coordinate rounding", () => {
     test("Country precision (0) rounds to whole degrees", async () => {
       fetchSpy.mockResolvedValueOnce(jsonResponse(fullNominatimResponse));
-      const geocoder = new NominatimReverseGeocoder(CoordinatePrecision.Country);
+      const geocoder = new NominatimGeocoder(CoordinatePrecision.Country);
 
       await geocoder.reverseGeocode(42.3601, -71.0589);
 
@@ -48,7 +48,7 @@ describe("NominatimReverseGeocoder", () => {
 
     test("City precision (1) rounds to 1 decimal place", async () => {
       fetchSpy.mockResolvedValueOnce(jsonResponse(fullNominatimResponse));
-      const geocoder = new NominatimReverseGeocoder(CoordinatePrecision.City);
+      const geocoder = new NominatimGeocoder(CoordinatePrecision.City);
 
       await geocoder.reverseGeocode(42.3601, -71.0589);
 
@@ -60,7 +60,7 @@ describe("NominatimReverseGeocoder", () => {
 
     test("Neighborhood precision (2) rounds to 2 decimal places", async () => {
       fetchSpy.mockResolvedValueOnce(jsonResponse(fullNominatimResponse));
-      const geocoder = new NominatimReverseGeocoder(CoordinatePrecision.Neighborhood);
+      const geocoder = new NominatimGeocoder(CoordinatePrecision.Neighborhood);
 
       await geocoder.reverseGeocode(42.3601, -71.0589);
 
@@ -72,7 +72,7 @@ describe("NominatimReverseGeocoder", () => {
 
     test("Street precision (3) rounds to 3 decimal places", async () => {
       fetchSpy.mockResolvedValueOnce(jsonResponse(fullNominatimResponse));
-      const geocoder = new NominatimReverseGeocoder(CoordinatePrecision.Street);
+      const geocoder = new NominatimGeocoder(CoordinatePrecision.Street);
 
       await geocoder.reverseGeocode(42.3601, -71.0589);
 
@@ -84,7 +84,7 @@ describe("NominatimReverseGeocoder", () => {
 
     test("Building precision (4) rounds to 4 decimal places", async () => {
       fetchSpy.mockResolvedValueOnce(jsonResponse(fullNominatimResponse));
-      const geocoder = new NominatimReverseGeocoder(CoordinatePrecision.Building);
+      const geocoder = new NominatimGeocoder(CoordinatePrecision.Building);
 
       await geocoder.reverseGeocode(42.36014, -71.05891);
 
@@ -96,7 +96,7 @@ describe("NominatimReverseGeocoder", () => {
 
     test("VeryPrecise (6) rounds to 6 decimal places", async () => {
       fetchSpy.mockResolvedValueOnce(jsonResponse(fullNominatimResponse));
-      const geocoder = new NominatimReverseGeocoder(CoordinatePrecision.VeryPrecise);
+      const geocoder = new NominatimGeocoder(CoordinatePrecision.VeryPrecise);
 
       await geocoder.reverseGeocode(42.3601234, -71.0589876);
 
@@ -110,7 +110,7 @@ describe("NominatimReverseGeocoder", () => {
   describe("URL format", () => {
     test("calls the Nominatim reverse API with correct base URL and params", async () => {
       fetchSpy.mockResolvedValueOnce(jsonResponse(fullNominatimResponse));
-      const geocoder = new NominatimReverseGeocoder(CoordinatePrecision.Building);
+      const geocoder = new NominatimGeocoder(CoordinatePrecision.Building);
 
       await geocoder.reverseGeocode(42.3601, -71.0589);
 
@@ -125,7 +125,7 @@ describe("NominatimReverseGeocoder", () => {
   describe("response parsing", () => {
     test("returns full address and parsed lat/lon when all fields present", async () => {
       fetchSpy.mockResolvedValueOnce(jsonResponse(fullNominatimResponse));
-      const geocoder = new NominatimReverseGeocoder(CoordinatePrecision.Building);
+      const geocoder = new NominatimGeocoder(CoordinatePrecision.Building);
 
       const result = await geocoder.reverseGeocode(42.3601, -71.0589);
 
@@ -146,7 +146,7 @@ describe("NominatimReverseGeocoder", () => {
 
     test("returns only lat/lon when display_name is missing", async () => {
       fetchSpy.mockResolvedValueOnce(jsonResponse({ place_id: 1 }));
-      const geocoder = new NominatimReverseGeocoder(CoordinatePrecision.Building);
+      const geocoder = new NominatimGeocoder(CoordinatePrecision.Building);
 
       const result = await geocoder.reverseGeocode(10, 20);
 
@@ -161,7 +161,7 @@ describe("NominatimReverseGeocoder", () => {
         lon: "10",
         display_name: "Somewhere",
       }));
-      const geocoder = new NominatimReverseGeocoder(CoordinatePrecision.Building);
+      const geocoder = new NominatimGeocoder(CoordinatePrecision.Building);
 
       const result = await geocoder.reverseGeocode(0, 0);
 
@@ -173,7 +173,7 @@ describe("NominatimReverseGeocoder", () => {
         ...fullNominatimResponse,
         address: { ...fullNominatimResponse.address, city: undefined, town: "Concord" },
       }));
-      const geocoder = new NominatimReverseGeocoder(CoordinatePrecision.Building);
+      const geocoder = new NominatimGeocoder(CoordinatePrecision.Building);
 
       const result = await geocoder.reverseGeocode(42.3601, -71.0589);
 
@@ -185,7 +185,7 @@ describe("NominatimReverseGeocoder", () => {
         ...fullNominatimResponse,
         address: { ...fullNominatimResponse.address, city: undefined, town: undefined, village: "Lexington" },
       }));
-      const geocoder = new NominatimReverseGeocoder(CoordinatePrecision.Building);
+      const geocoder = new NominatimGeocoder(CoordinatePrecision.Building);
 
       const result = await geocoder.reverseGeocode(42.3601, -71.0589);
 
@@ -197,7 +197,7 @@ describe("NominatimReverseGeocoder", () => {
         ...fullNominatimResponse,
         address: { ...fullNominatimResponse.address, city: undefined, town: undefined, village: undefined, hamlet: "Smallville" },
       }));
-      const geocoder = new NominatimReverseGeocoder(CoordinatePrecision.Building);
+      const geocoder = new NominatimGeocoder(CoordinatePrecision.Building);
 
       const result = await geocoder.reverseGeocode(42.3601, -71.0589);
 
@@ -209,7 +209,7 @@ describe("NominatimReverseGeocoder", () => {
         ...fullNominatimResponse,
         address: { ...fullNominatimResponse.address, house_number: undefined, road: undefined },
       }));
-      const geocoder = new NominatimReverseGeocoder(CoordinatePrecision.Building);
+      const geocoder = new NominatimGeocoder(CoordinatePrecision.Building);
 
       const result = await geocoder.reverseGeocode(42.3601, -71.0589);
 
@@ -221,7 +221,7 @@ describe("NominatimReverseGeocoder", () => {
         ...fullNominatimResponse,
         address: { ...fullNominatimResponse.address, house_number: undefined },
       }));
-      const geocoder = new NominatimReverseGeocoder(CoordinatePrecision.Building);
+      const geocoder = new NominatimGeocoder(CoordinatePrecision.Building);
 
       const result = await geocoder.reverseGeocode(42.3601, -71.0589);
 

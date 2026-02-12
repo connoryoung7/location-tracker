@@ -281,7 +281,7 @@ export type Address = {
   displayName: string;
 };
 
-export type ReverseGeocodingResult = {
+export type GeocodingResult = {
   address?: Address;
   lat: number;
   lon: number;

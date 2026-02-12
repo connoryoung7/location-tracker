@@ -8,12 +8,12 @@ Follow these naming conventions when creating or renaming variables, types, inte
 
 ## Types and Interfaces
 
-- **PascalCase** for all type aliases and interfaces: `LocationPayload`, `ReverseGeocodingResult`
-- **Interfaces** describe capabilities or roles, named as nouns or agent nouns: `Logger`, `EventPublisher`, `ReverseGeocoder`, `PayloadDecryptor`, `LocationRepository`
+- **PascalCase** for all type aliases and interfaces: `LocationPayload`, `GeocodingResult`
+- **Interfaces** describe capabilities or roles, named as nouns or agent nouns: `Logger`, `EventPublisher`, `Geocoder`, `PayloadDecryptor`, `LocationRepository`
 - **Type aliases** for data shapes use a descriptive noun, suffixed by category:
   - `*Payload` — inbound data from an external system: `LocationPayload`, `TransitionPayload`, `WaypointPayload`
   - `*Event` — domain events published internally: `UserWaypointUpdatedEvent`, `DomainEvent`
-  - `*Result` — return value from an operation: `ReverseGeocodingResult`
+  - `*Result` — return value from an operation: `GeocodingResult`
 - **Union types** that group related types use a collective name: `OwnTracksPayload`, `DomainEvent`
 - **Enums** are PascalCase with PascalCase members: `CoordinatePrecision.Building`
 
@@ -34,13 +34,13 @@ PubSub events should have the following naming: `<subject><verb in past tense>Ev
 
 ## Classes
 
-- **PascalCase**, named as `[Qualifier][Domain]`: `ConsoleLogger`, `SqliteLocationRepository`, `NominatimReverseGeocoder`, `LibsodiumDecryptor`
+- **PascalCase**, named as `[Qualifier][Domain]`: `ConsoleLogger`, `SqliteLocationRepository`, `NominatimGeocoder`, `LibsodiumDecryptor`
 - Implementation classes pair a concrete qualifier with the interface name they implement
 
 ## Files
 
 - **kebab-case** for all filenames: `handle-payload.ts`, `console.logger.ts`
-- **Dot-separated** for specialization: `sqlite.repository.ts`, `nominatim.reverse-geocoder.ts`, `libsodium.decryptor.ts`
+- **Dot-separated** for specialization: `sqlite.repository.ts`, `nominatim.geocoder.ts`, `libsodium.decryptor.ts`
 - **Test files** use `.test.ts` suffix co-located with the source: `server.test.ts`
 
 ## Event `_type` Fields

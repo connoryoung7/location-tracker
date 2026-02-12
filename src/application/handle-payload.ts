@@ -1,5 +1,5 @@
 import type { OwnTracksPayload } from '@/domain/types.ts';
-import type { EventPublisher, LocationRepository, Logger, PayloadDecryptor, ReverseGeocoder } from '@/domain/ports.ts';
+import type { EventPublisher, Geocoder, LocationRepository, Logger, PayloadDecryptor } from '@/domain/ports.ts';
 import { handleLocation } from '@/application/handlers/location.handler.ts';
 import { handleTransition } from '@/application/handlers/transition.handler.ts';
 import { handleWaypoint } from '@/application/handlers/waypoint.handler.ts';
@@ -9,7 +9,7 @@ export interface Deps {
   repo: LocationRepository;
   logger: Logger;
   decryptor: PayloadDecryptor;
-  reverseGeocoder: ReverseGeocoder;
+  reverseGeocoder: Geocoder;
   eventPublisher: EventPublisher;
 }
 

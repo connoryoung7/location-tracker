@@ -7,8 +7,8 @@ import { SqliteLocationRepository } from '@/repository/location-repository/sqlit
 import { LibsodiumDecryptor } from '@/infrastructure/crypto/libsodium.decryptor';
 import type { Deps } from '@/application/handle-payload.ts';
 import type { Server } from 'node:http';
-import type { PayloadDecryptor, ReverseGeocoder } from '@/domain/ports';
-import type { ReverseGeocodingResult } from '@/domain/types';
+import type { Geocoder, PayloadDecryptor } from '@/domain/ports';
+import type { GeocodingResult } from '@/domain/types';
 import type { DomainEvent } from '@/domain/events';
 
 const TEST_PORT = 0; // let OS pick an available port
@@ -17,7 +17,7 @@ let server: Server;
 let baseUrl: string;
 let db: Database;
 let encryptor: PayloadDecryptor;
-let mockGeocodeResult: ReverseGeocodingResult;
+let mockGeocodeResult: GeocodingResult;
 const mockPublish = mock<(event: DomainEvent) => void>(() => {});
 const encryptionKey = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'; // 32 bytes key for testing
 
@@ -33,7 +33,7 @@ beforeAll(async () => {
     repo: new SqliteLocationRepository(db),
     logger: new ConsoleLogger(),
     decryptor: encryptor,
-    reverseGeocoder: { reverseGeocode: async () => mockGeocodeResult } satisfies ReverseGeocoder,
+    reverseGeocoder: { geocode: async () => [], reverseGeocode: async () => mockGeocodeResult } satisfies Geocoder,
     eventPublisher: { publish: mockPublish },
   };
 

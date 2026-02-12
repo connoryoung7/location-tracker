@@ -1,5 +1,5 @@
-import type { ReverseGeocoder } from "@/domain/ports";
-import { type Address, type CoordinatePrecision, type ReverseGeocodingResult } from "@/domain/types";
+import type { Geocoder } from "@/domain/ports";
+import { type Address, type CoordinatePrecision, type GeocodingResult } from "@/domain/types";
 
 type NominatimAddress = {
     house_number?: string;
@@ -36,14 +36,45 @@ type NominatimResponse = {
     address?: NominatimAddress;
 };
 
-export class NominatimReverseGeocoder implements ReverseGeocoder {
+export class NominatimGeocoder implements Geocoder {
     private precision: CoordinatePrecision;
 
     constructor(precision: CoordinatePrecision) {
         this.precision = precision;
     }
 
-    async reverseGeocode(lat: number, lon: number): Promise<ReverseGeocodingResult> {
+    async geocode(address: string): Promise<GeocodingResult[]> {
+        const response = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&q=${encodeURIComponent(address)}`);
+        const data = await response.json() as NominatimResponse[];
+        return data.map((item) => {
+            const result: GeocodingResult = {
+                lat: Number(item.lat),
+                lon: Number(item.lon),
+            };
+
+            if (item.display_name) {
+                const addr: Address = { displayName: item.display_name };
+
+                if (item.address) {
+                    const street = [item.address.house_number, item.address.road].filter(Boolean).join(" ");
+                    if (street) addr.street = street;
+
+                    const city = item.address.city ?? item.address.town ?? item.address.village ?? item.address.hamlet;
+                    if (city) addr.city = city;
+                    if (item.address.state) addr.state = item.address.state;
+                    if (item.address.country) addr.country = item.address.country;
+                    if (item.address.country_code) addr.countryCode = item.address.country_code;
+                    if (item.address.postcode) addr.postalCode = item.address.postcode;
+                }
+
+                result.address = addr;
+            }
+
+            return result;
+        });
+    }
+
+    async reverseGeocode(lat: number, lon: number): Promise<GeocodingResult> {
         const factor = 10 ** this.precision;
         const rlat = Math.round(lat * factor) / factor;
         const rlon = Math.round(lon * factor) / factor;

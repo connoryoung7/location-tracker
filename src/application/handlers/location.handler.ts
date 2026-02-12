@@ -1,9 +1,9 @@
 import type { LocationPayload } from '@/domain/types.ts';
-import type { LocationRepository, Logger, ReverseGeocoder } from '@/domain/ports.ts';
+import type { Geocoder, LocationRepository, Logger } from '@/domain/ports.ts';
 
 export async function handleLocation(
   payload: LocationPayload,
-  deps: { repo: LocationRepository; logger: Logger; reverseGeocoder: ReverseGeocoder },
+  deps: { repo: LocationRepository; logger: Logger; reverseGeocoder: Geocoder },
 ): Promise<void> {
   deps.logger.info(`Location: lat=${payload.lat} lon=${payload.lon} tid=${payload.tid}`);
   deps.reverseGeocoder.reverseGeocode(payload.lat, payload.lon).then(async (result) => {
