@@ -4,10 +4,7 @@ import { LibsodiumDecryptor } from './libsodium.decryptor.ts';
 
 const TEXT_KEY = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'; // 32 bytes key for testing
 
-const TEST_SECRET_KEY = Buffer.from(
-  btoa(TEXT_KEY),
-  'base64',
-); // "0123456789abcdef0123456789abcdef" (32 bytes)
+const TEST_SECRET_KEY = Buffer.from(btoa(TEXT_KEY), 'base64'); // "0123456789abcdef0123456789abcdef" (32 bytes)
 
 let decryptor: LibsodiumDecryptor;
 

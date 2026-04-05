@@ -1,4 +1,10 @@
-import type { Address, GeocodingResult, LocationPayload, TransitionPayload, WaypointPayload } from '@/domain/types.ts';
+import type {
+  Address,
+  GeocodingResult,
+  LocationPayload,
+  TransitionPayload,
+  WaypointPayload,
+} from '@/domain/types.ts';
 import type { DomainEvent } from '@/domain/events.ts';
 
 export interface LocationService {

@@ -1,4 +1,10 @@
-import type { Address, GeocodingResult, LocationPayload, TransitionPayload, WaypointPayload } from '@/domain/types.ts';
+import type {
+  Address,
+  GeocodingResult,
+  LocationPayload,
+  TransitionPayload,
+  WaypointPayload,
+} from '@/domain/types.ts';
 import type { UserWaypointUpdatedEvent } from '@/domain/events.ts';
 
 export function buildLocationPayload(overrides?: Partial<LocationPayload>): LocationPayload {

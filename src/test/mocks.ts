@@ -1,5 +1,11 @@
 import { mock } from 'bun:test';
-import type { EventPublisher, Geocoder, LocationRepository, Logger, NotificationSender } from '@/domain/ports.ts';
+import type {
+  EventPublisher,
+  Geocoder,
+  LocationRepository,
+  Logger,
+  NotificationSender,
+} from '@/domain/ports.ts';
 import type { GeocodingResult } from '@/domain/types.ts';
 import type { DomainEvent } from '@/domain/events.ts';
 

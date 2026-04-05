@@ -1,5 +1,10 @@
 import type { SQL } from 'bun';
-import type { Address, LocationPayload, TransitionPayload, WaypointPayload } from '@/domain/types.ts';
+import type {
+  Address,
+  LocationPayload,
+  TransitionPayload,
+  WaypointPayload,
+} from '@/domain/types.ts';
 import type { LocationRepository } from '@/domain/ports.ts';
 
 export class PostgresLocationRepository implements LocationRepository {
