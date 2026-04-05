@@ -42,6 +42,10 @@ fmt-check:
 install:
     bun install
 
+# Install git hooks via prek
+hooks-install:
+    prek install
+
 # Build production Docker image
 docker-build:
     docker build -t location-tracker .

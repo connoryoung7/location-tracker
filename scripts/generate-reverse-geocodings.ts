@@ -1,6 +1,16 @@
-import { walkingCoordinates, drivingCoordinates, stationaryCoordinates, ungeocodableCoordinates } from '@/test/coordinates.ts';
+import {
+  walkingCoordinates,
+  drivingCoordinates,
+  stationaryCoordinates,
+  ungeocodableCoordinates,
+} from '@/test/coordinates.ts';
 
-const allCoordinates = [...walkingCoordinates, ...drivingCoordinates, ...stationaryCoordinates, ...ungeocodableCoordinates];
+const allCoordinates = [
+  ...walkingCoordinates,
+  ...drivingCoordinates,
+  ...stationaryCoordinates,
+  ...ungeocodableCoordinates,
+];
 
 const seen = new Set<string>();
 const uniqueCoordinates: { lat: number; lon: number }[] = [];
@@ -21,7 +31,9 @@ for (const [i, coord] of uniqueCoordinates.entries()) {
   const key = `${coord.lat}:${coord.lon}`;
   console.log(`[${i + 1}/${uniqueCoordinates.length}] ${key}`);
 
-  const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&addressdetails=1&lat=${coord.lat}&lon=${coord.lon}`);
+  const response = await fetch(
+    `https://nominatim.openstreetmap.org/reverse?format=jsonv2&addressdetails=1&lat=${coord.lat}&lon=${coord.lon}`,
+  );
   results[key] = await response.json();
 
   // Nominatim usage policy: max 1 request/second
