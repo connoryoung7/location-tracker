@@ -22,7 +22,8 @@ export type Config = {
 };
 
 export function loadConfig(): Config {
-  const env = ConfigSchema.parse(process.env);
+  const { PORT, DB_PATH, MQTT_BROKER_URL, DATABASE_URL, ENCRYPTION_KEY } = process.env;
+  const env = ConfigSchema.parse({ PORT, DB_PATH, MQTT_BROKER_URL, DATABASE_URL, ENCRYPTION_KEY });
   return {
     port: env.PORT,
     dbPath: env.DB_PATH,
