@@ -34,7 +34,6 @@ beforeAll(async () => {
     logger: new ConsoleLogger(),
     decryptor: encryptor,
     reverseGeocoder: {
-      geocode: async () => [],
       reverseGeocode: async () => mockGeocodeResult,
     } satisfies Geocoder,
     eventPublisher: { publish: mockPublish },

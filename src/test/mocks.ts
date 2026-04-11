@@ -25,7 +25,6 @@ export function mockGeocoder(result?: GeocodingResult): {
   [K in keyof Geocoder]: ReturnType<typeof mock>;
 } {
   return {
-    geocode: mock(() => Promise.resolve(result ? [result] : [])),
     reverseGeocode: mock(() => Promise.resolve(result ?? { lat: 0, lon: 0 })),
   };
 }

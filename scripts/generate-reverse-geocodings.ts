@@ -33,6 +33,7 @@ for (const [i, coord] of uniqueCoordinates.entries()) {
 
   const response = await fetch(
     `https://nominatim.openstreetmap.org/reverse?format=jsonv2&addressdetails=1&lat=${coord.lat}&lon=${coord.lon}`,
+    { headers: { 'User-Agent': 'location-tracker/1.0' } },
   );
   results[key] = await response.json();
 

@@ -36,6 +36,10 @@ type NominatimResponse = {
   address?: NominatimAddress;
 };
 
+const NOMINATIM_HEADERS = {
+  'User-Agent': 'location-tracker/1.0',
+};
+
 export class NominatimGeocoder implements Geocoder {
   private precision: CoordinatePrecision;
 
@@ -46,7 +50,11 @@ export class NominatimGeocoder implements Geocoder {
   async geocode(address: string): Promise<GeocodingResult[]> {
     const response = await fetch(
       `https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&q=${encodeURIComponent(address)}`,
+      { headers: NOMINATIM_HEADERS },
     );
+    if (!response.ok) {
+      throw new Error(`Nominatim search failed: ${response.status} ${response.statusText}`);
+    }
     const data = (await response.json()) as NominatimResponse[];
     return data.map((item) => {
       const result: GeocodingResult = {
@@ -83,7 +91,11 @@ export class NominatimGeocoder implements Geocoder {
     const rlon = Math.round(lon * factor) / factor;
     const response = await fetch(
       `https://nominatim.openstreetmap.org/reverse?format=jsonv2&addressdetails=1&lat=${rlat}&lon=${rlon}`,
+      { headers: NOMINATIM_HEADERS },
     );
+    if (!response.ok) {
+      throw new Error(`Nominatim reverse failed: ${response.status} ${response.statusText}`);
+    }
     const data = (await response.json()) as NominatimResponse;
     if (!data?.display_name) {
       return {

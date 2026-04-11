@@ -33,7 +33,6 @@ export interface PayloadDecryptor {
 }
 
 export interface Geocoder {
-  geocode(address: string): Promise<GeocodingResult[]>;
   reverseGeocode(lat: number, lon: number): Promise<GeocodingResult>;
 }
 
