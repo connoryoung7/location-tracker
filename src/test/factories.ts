@@ -67,7 +67,7 @@ export function buildUserWaypointUpdatedEvent(
     _type: 'user-waypoint.updated',
     update_type: 'enter',
     waypoint: buildWaypointPayload(),
-    transition: buildTransitionPayload(),
+    transition_tst: 1700000000,
     ...overrides,
   };
 }

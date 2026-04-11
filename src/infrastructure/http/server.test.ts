@@ -574,19 +574,7 @@ describe('POST /pub transition', () => {
         tst: 1699999000,
         rid: 'region-1',
       },
-      transition: {
-        _type: 'transition',
-        tst: 1700000000,
-        wtst: 1699999000,
-        acc: 10,
-        event: 'enter',
-        lat: 42.3601,
-        lon: -71.0589,
-        tid: 'AB',
-        desc: 'Office',
-        t: 'c',
-        rid: 'region-1',
-      },
+      transition_tst: 1700000000,
     });
   });
 
@@ -652,7 +640,7 @@ describe('POST /pub transition', () => {
         tst: 1699999000,
         rid: 'region-1',
       },
-      transition,
+      transition_tst: 1700000000,
     });
   });
 

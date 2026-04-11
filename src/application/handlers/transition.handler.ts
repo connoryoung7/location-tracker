@@ -18,7 +18,7 @@ export async function handleTransition(
       tst: payload.wtst,
       rid: payload.rid,
     },
-    transition: payload,
+    transition_tst: payload.tst,
   };
   await deps.eventPublisher.publish(event);
 }
