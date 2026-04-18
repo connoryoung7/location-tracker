@@ -36,7 +36,7 @@ fmt:
 
 # Check formatting without writing
 fmt-check:
-    bunx oxfmt src/
+    bunx oxfmt --check src/
 
 # Install dependencies
 install:
