@@ -5,7 +5,6 @@ import type {
   TransitionPayload,
   WaypointPayload,
 } from '@/domain/types.ts';
-import type { UserWaypointUpdatedEvent } from '@/domain/events.ts';
 
 export function buildLocationPayload(overrides?: Partial<LocationPayload>): LocationPayload {
   return {
@@ -56,18 +55,6 @@ export function buildGeocodingResult(overrides?: Partial<GeocodingResult>): Geoc
     lat: 42.3601,
     lon: -71.0589,
     address: buildAddress(),
-    ...overrides,
-  };
-}
-
-export function buildUserWaypointUpdatedEvent(
-  overrides?: Partial<UserWaypointUpdatedEvent>,
-): UserWaypointUpdatedEvent {
-  return {
-    _type: 'user-waypoint.updated',
-    update_type: 'enter',
-    waypoint: buildWaypointPayload(),
-    transition_tst: 1700000000,
     ...overrides,
   };
 }

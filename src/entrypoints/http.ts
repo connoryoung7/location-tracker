@@ -12,18 +12,10 @@ import { PostgresLocationRepository } from '@/repository/location-repository/pos
 import { NominatimGeocoder } from '@/infrastructure/geocoder/nominatim.geocoder';
 import { CoordinatePrecision } from '@/domain/types';
 import type { Deps } from '@/application/handle-payload.ts';
-import type { EventPublisher } from '@/domain/ports.ts';
 
 const config = loadConfig();
 const logger = new PinoLogger();
 const reverseGeocoder = new NominatimGeocoder(CoordinatePrecision.Building);
-
-// TODO: replace with a real EventPublisher implementation (e.g. Redis Pub/Sub, MQTT)
-const eventPublisher: EventPublisher = {
-  publish(event) {
-    logger.warn(`EventPublisher not configured — dropping event: ${event._type}`);
-  },
-};
 
 const decryptor = config.encryptionKey
   ? await LibsodiumDecryptor.create(Buffer.from(btoa(config.encryptionKey), 'base64'))
@@ -41,7 +33,6 @@ if (config.databaseUrl) {
     logger,
     decryptor,
     reverseGeocoder,
-    eventPublisher,
   };
 } else {
   const db = new Database(config.dbPath, { create: true });
@@ -51,7 +42,6 @@ if (config.databaseUrl) {
     logger,
     decryptor,
     reverseGeocoder,
-    eventPublisher,
   };
 }
 

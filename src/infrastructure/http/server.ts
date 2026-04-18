@@ -36,8 +36,6 @@ export function createHttpServer(deps: Deps) {
       return;
     }
 
-    deps.logger.info(`Received payload: ${JSON.stringify(result.data)}`);
-
     await handlePayload(result.data, deps);
     res.status(200).json([]);
   });

@@ -5,7 +5,6 @@ import type {
   TransitionPayload,
   WaypointPayload,
 } from '@/domain/types.ts';
-import type { DomainEvent } from '@/domain/events.ts';
 
 export interface LocationService {
   saveLocation(payload: LocationPayload): void | Promise<void>;
@@ -34,10 +33,6 @@ export interface PayloadDecryptor {
 
 export interface Geocoder {
   reverseGeocode(lat: number, lon: number): Promise<GeocodingResult>;
-}
-
-export interface EventPublisher {
-  publish(event: DomainEvent): void | Promise<void>;
 }
 
 export interface NotificationSender {

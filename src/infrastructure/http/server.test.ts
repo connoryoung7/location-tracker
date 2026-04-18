@@ -1,4 +1,4 @@
-import { test, expect, describe, beforeAll, afterAll, beforeEach, mock } from 'bun:test';
+import { test, expect, describe, beforeAll, afterAll, beforeEach } from 'bun:test';
 import { Database } from 'bun:sqlite';
 import { createHttpServer } from '@/infrastructure/http/server.ts';
 import { ConsoleLogger } from '@/infrastructure/logging/console.logger.ts';
@@ -9,7 +9,6 @@ import type { Deps } from '@/application/handle-payload.ts';
 import type { Server } from 'node:http';
 import type { Geocoder, PayloadDecryptor } from '@/domain/ports';
 import type { GeocodingResult } from '@/domain/types';
-import type { DomainEvent } from '@/domain/events';
 
 const TEST_PORT = 0; // let OS pick an available port
 
@@ -18,7 +17,6 @@ let baseUrl: string;
 let db: Database;
 let encryptor: PayloadDecryptor;
 let mockGeocodeResult: GeocodingResult;
-const mockPublish = mock<(event: DomainEvent) => void>(() => {});
 const encryptionKey = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'; // 32 bytes key for testing
 
 beforeAll(async () => {
@@ -36,19 +34,23 @@ beforeAll(async () => {
     reverseGeocoder: {
       reverseGeocode: async () => mockGeocodeResult,
     } satisfies Geocoder,
-    eventPublisher: { publish: mockPublish },
   };
 
   const app = createHttpServer(deps);
-  await new Promise<void>((resolve) => {
-    server = app.listen(TEST_PORT, () => {
-      const addr = server.address();
-      if (addr && typeof addr === 'object') {
-        baseUrl = `http://localhost:${addr.port}`;
-      }
+  await new Promise<void>((resolve, reject) => {
+    server = app.listen(TEST_PORT, '127.0.0.1', () => {
       resolve();
     });
+    server.once('error', reject);
   });
+
+  const addr = server.address();
+  if (typeof addr === 'object' && addr?.port) {
+    baseUrl = `http://127.0.0.1:${addr.port}`;
+    return;
+  }
+
+  throw new Error(`Failed to determine test server address: ${String(addr)}`);
 });
 
 afterAll(() => {
@@ -57,10 +59,10 @@ afterAll(() => {
 
 beforeEach(() => {
   db.run('DELETE FROM locations');
+  db.run('DELETE FROM transitions');
   db.run('DELETE FROM waypoints');
   db.run('DELETE FROM addresses');
   mockGeocodeResult = { lat: 0, lon: 0 };
-  mockPublish.mockClear();
 });
 
 function post(path: string, body: unknown) {
@@ -547,7 +549,7 @@ describe('POST /pub encrypted invalid payloads', () => {
 });
 
 describe('POST /pub transition', () => {
-  test('publishes a UserWaypointUpdatedEvent on enter transition', async () => {
+  test('persists an enter transition', async () => {
     const res = await post('/pub', {
       _type: 'transition',
       tst: 1700000000,
@@ -563,21 +565,15 @@ describe('POST /pub transition', () => {
     });
 
     expect(res.status).toBe(200);
-    expect(mockPublish).toHaveBeenCalledTimes(1);
-    expect(mockPublish.mock.calls[0]![0]).toEqual({
-      _type: 'user-waypoint.updated',
-      update_type: 'enter',
-      waypoint: {
-        _type: 'waypoint',
-        desc: 'Office',
-        tst: 1699999000,
-        rid: 'region-1',
-      },
-      transition_tst: 1700000000,
-    });
+    const row = db.query('SELECT * FROM transitions').get() as any;
+    expect(row.event).toBe('enter');
+    expect(row.tst).toBe(1700000000);
+    expect(row.wtst).toBe(1699999000);
+    expect(row.desc).toBe('Office');
+    expect(row.rid).toBe('region-1');
   });
 
-  test('publishes a UserWaypointUpdatedEvent on leave transition', async () => {
+  test('persists a leave transition with sparse fields', async () => {
     await post('/pub', {
       _type: 'transition',
       tst: 1700001000,
@@ -588,27 +584,15 @@ describe('POST /pub transition', () => {
       rid: 'region-2',
     });
 
-    expect(mockPublish).toHaveBeenCalledTimes(1);
-    expect(mockPublish.mock.calls[0]![0]).toMatchObject({
-      _type: 'user-waypoint.updated',
-      update_type: 'leave',
-      waypoint: { desc: 'Home', tst: 1699999000 },
-    });
+    const row = db.query('SELECT * FROM transitions').get() as any;
+    expect(row.event).toBe('leave');
+    expect(row.desc).toBe('Home');
+    expect(row.rid).toBe('region-2');
+    expect(row.lat).toBeNull();
+    expect(row.lon).toBeNull();
   });
 
-  test('does not publish an event for location payloads', async () => {
-    await post('/pub', {
-      _type: 'location',
-      lat: 42.3601,
-      lon: -71.0589,
-      tst: 1700000000,
-      tid: 'AB',
-    });
-
-    expect(mockPublish).not.toHaveBeenCalled();
-  });
-
-  test('publishes event when transition is encrypted', async () => {
+  test('persists encrypted transitions', async () => {
     const transition = {
       _type: 'transition' as const,
       tst: 1700000000,
@@ -629,21 +613,14 @@ describe('POST /pub transition', () => {
     });
 
     expect(res.status).toBe(200);
-    expect(mockPublish).toHaveBeenCalledTimes(1);
-    expect(mockPublish.mock.calls[0]![0]).toEqual({
-      _type: 'user-waypoint.updated',
-      update_type: 'enter',
-      waypoint: {
-        _type: 'waypoint',
-        desc: 'Office',
-        tst: 1699999000,
-        rid: 'region-1',
-      },
-      transition_tst: 1700000000,
-    });
+    const row = db.query('SELECT * FROM transitions').get() as any;
+    expect(row.event).toBe('enter');
+    expect(row.tid).toBe('AB');
+    expect(row.desc).toBe('Office');
+    expect(row.rid).toBe('region-1');
   });
 
-  test('publishes leave event when encrypted transition has minimal fields', async () => {
+  test('persists minimal encrypted leave transitions', async () => {
     const transition = {
       _type: 'transition',
       tst: 1700001000,
@@ -657,11 +634,10 @@ describe('POST /pub transition', () => {
       data: encryptor.encrypt(JSON.stringify(transition)),
     });
 
-    expect(mockPublish).toHaveBeenCalledTimes(1);
-    expect(mockPublish.mock.calls[0]![0]).toMatchObject({
-      _type: 'user-waypoint.updated',
-      update_type: 'leave',
-      waypoint: { _type: 'waypoint', desc: '', tst: 1699999000 },
-    });
+    const row = db.query('SELECT * FROM transitions').get() as any;
+    expect(row.event).toBe('leave');
+    expect(row.tst).toBe(1700001000);
+    expect(row.wtst).toBe(1699999000);
+    expect(row.desc).toBeNull();
   });
 });

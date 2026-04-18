@@ -1,13 +1,6 @@
 import { mock } from 'bun:test';
-import type {
-  EventPublisher,
-  Geocoder,
-  LocationRepository,
-  Logger,
-  NotificationSender,
-} from '@/domain/ports.ts';
+import type { Geocoder, LocationRepository, Logger, NotificationSender } from '@/domain/ports.ts';
 import type { GeocodingResult } from '@/domain/types.ts';
-import type { DomainEvent } from '@/domain/events.ts';
 
 export function mockLocationRepository(): {
   [K in keyof LocationRepository]: ReturnType<typeof mock>;
@@ -26,14 +19,6 @@ export function mockGeocoder(result?: GeocodingResult): {
 } {
   return {
     reverseGeocode: mock(() => Promise.resolve(result ?? { lat: 0, lon: 0 })),
-  };
-}
-
-export function mockEventPublisher(): {
-  [K in keyof EventPublisher]: ReturnType<typeof mock<(event: DomainEvent) => void>>;
-} {
-  return {
-    publish: mock<(event: DomainEvent) => void>(() => {}),
   };
 }
 
