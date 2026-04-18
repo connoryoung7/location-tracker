@@ -10,7 +10,7 @@ export async function handleLocation(
     .reverseGeocode(payload.lat, payload.lon)
     .then(async (result) => {
       if (result.address) {
-        deps.logger.info('Address resolved, saving');
+        deps.logger.info(`Address: ${result.address.displayName}`);
         await deps.repo.saveAddress(result.lat, result.lon, result.address);
       }
     })

@@ -37,3 +37,4 @@ feat(auth): add API key rotation
 fix: handle null location payload
 chore!: drop support for MQTT v3
 ```
+

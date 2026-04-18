@@ -36,7 +36,7 @@ fmt:
 
 # Check formatting without writing
 fmt-check:
-    bunx oxfmt src/
+    bunx oxfmt --check src/
 
 # Install dependencies
 install:
@@ -97,6 +97,12 @@ compose-logs:
 # Send all test-data payloads to the OwnTracks endpoint
 test-data url="http://localhost:3000":
     ./test-data/send-all.sh {{url}}
+
+# Run the full CI pipeline locally (mirrors .github/workflows/ci.yml)
+ci:
+    bun install --frozen-lockfile
+    just fmt-check
+    just check
 
 # Run all checks (typecheck, lint, test)
 check: typecheck lint test
