@@ -1,4 +1,4 @@
-__
+___
 description: Summarize local branch work versus main
 allowed-tools: Bash(git branch --show-current), Bash(git diff *), Bash(git log *), Bash(git status *)
 ---
