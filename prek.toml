@@ -1,0 +1,25 @@
+[[repos]]
+repo = "local"
+hooks = [
+  {
+    id = "oxfmt",
+    name = "oxfmt",
+    language = "system",
+    entry = "bunx oxfmt --write",
+    types_or = ["ts", "tsx"],
+  },
+  {
+    id = "oxlint",
+    name = "oxlint",
+    language = "system",
+    entry = "bunx oxlint",
+    types_or = ["ts", "tsx"],
+  },
+  {
+    id = "conventional-commit",
+    name = "conventional commit",
+    language = "system",
+    entry = "grep -qE '^(feat|fix|docs|style|refactor|perf|test|chore|ci|build|revert)(\\([a-zA-Z0-9_-]+\\))?(!)?: .+'",
+    stages = ["commit-msg"],
+  },
+]

@@ -7,8 +7,8 @@ import { SqliteLocationRepository } from '@/repository/location-repository/sqlit
 import { LibsodiumDecryptor } from '@/infrastructure/crypto/libsodium.decryptor';
 import type { Deps } from '@/application/handle-payload.ts';
 import type { Server } from 'node:http';
-import type { PayloadDecryptor, ReverseGeocoder } from '@/domain/ports';
-import type { ReverseGeocodingResult } from '@/domain/types';
+import type { Geocoder, PayloadDecryptor } from '@/domain/ports';
+import type { GeocodingResult } from '@/domain/types';
 
 const TEST_PORT = 0; // let OS pick an available port
 
@@ -16,7 +16,7 @@ let server: Server;
 let baseUrl: string;
 let db: Database;
 let encryptor: PayloadDecryptor;
-let mockGeocodeResult: ReverseGeocodingResult;
+let mockGeocodeResult: GeocodingResult;
 const encryptionKey = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'; // 32 bytes key for testing
 
 beforeAll(async () => {
@@ -31,19 +31,26 @@ beforeAll(async () => {
     repo: new SqliteLocationRepository(db),
     logger: new ConsoleLogger(),
     decryptor: encryptor,
-    reverseGeocoder: { reverseGeocode: async () => mockGeocodeResult } satisfies ReverseGeocoder,
+    reverseGeocoder: {
+      reverseGeocode: async () => mockGeocodeResult,
+    } satisfies Geocoder,
   };
 
   const app = createHttpServer(deps);
-  await new Promise<void>((resolve) => {
-    server = app.listen(TEST_PORT, () => {
-      const addr = server.address();
-      if (addr && typeof addr === 'object') {
-        baseUrl = `http://localhost:${addr.port}`;
-      }
+  await new Promise<void>((resolve, reject) => {
+    server = app.listen(TEST_PORT, '127.0.0.1', () => {
       resolve();
     });
+    server.once('error', reject);
   });
+
+  const addr = server.address();
+  if (typeof addr === 'object' && addr?.port) {
+    baseUrl = `http://127.0.0.1:${addr.port}`;
+    return;
+  }
+
+  throw new Error(`Failed to determine test server address: ${String(addr)}`);
 });
 
 afterAll(() => {
@@ -52,6 +59,7 @@ afterAll(() => {
 
 beforeEach(() => {
   db.run('DELETE FROM locations');
+  db.run('DELETE FROM transitions');
   db.run('DELETE FROM waypoints');
   db.run('DELETE FROM addresses');
   mockGeocodeResult = { lat: 0, lon: 0 };
@@ -371,6 +379,89 @@ describe('POST /pub waypoint', () => {
     expect(row.minor).toBeNull();
     expect(row.rid).toBeNull();
   });
+
+  test('persists address when reverse geocoder returns a result', async () => {
+    mockGeocodeResult = {
+      lat: 42.3601,
+      lon: -71.0589,
+      address: {
+        displayName: '456 Elm St, Cambridge, MA 02139, US',
+        street: '456 Elm St',
+        city: 'Cambridge',
+        state: 'MA',
+        country: 'United States',
+        countryCode: 'US',
+        postalCode: '02139',
+      },
+    };
+
+    await post('/pub', {
+      _type: 'waypoint',
+      desc: 'Office',
+      tst: 1700000000,
+      lat: 42.3601,
+      lon: -71.0589,
+      rad: 150,
+    });
+
+    // Address save is fire-and-forget; wait for the background promise to settle
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    const row = db.query('SELECT * FROM addresses').get() as any;
+    expect(row).not.toBeNull();
+    expect(row.lat).toBe(42.3601);
+    expect(row.lon).toBe(-71.0589);
+    expect(row.display_name).toBe('456 Elm St, Cambridge, MA 02139, US');
+    expect(row.street).toBe('456 Elm St');
+    expect(row.city).toBe('Cambridge');
+    expect(row.state).toBe('MA');
+    expect(row.country).toBe('United States');
+    expect(row.country_code).toBe('US');
+    expect(row.postal_code).toBe('02139');
+  });
+
+  test('does not persist address when reverse geocoder returns no address', async () => {
+    await post('/pub', {
+      _type: 'waypoint',
+      desc: 'Office',
+      tst: 1700000000,
+      lat: 42.3601,
+      lon: -71.0589,
+      rad: 150,
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    const count = db.query('SELECT COUNT(*) as c FROM addresses').get() as any;
+    expect(count.c).toBe(0);
+  });
+
+  test('does not call reverse geocoder when lat/lon are missing', async () => {
+    mockGeocodeResult = {
+      lat: 0,
+      lon: 0,
+      address: {
+        displayName: 'Should not appear',
+        street: 'Nope',
+        city: 'Nope',
+        state: 'Nope',
+        country: 'Nope',
+        countryCode: 'NO',
+        postalCode: '00000',
+      },
+    };
+
+    await post('/pub', {
+      _type: 'waypoint',
+      desc: 'Home',
+      tst: 1700000000,
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    const count = db.query('SELECT COUNT(*) as c FROM addresses').get() as any;
+    expect(count.c).toBe(0);
+  });
 });
 
 describe('POST /pub encrypted location', () => {
@@ -454,5 +545,99 @@ describe('POST /pub encrypted invalid payloads', () => {
     const waypoints = db.query('SELECT COUNT(*) as c FROM waypoints').get() as any;
     expect(locations.c).toBe(0);
     expect(waypoints.c).toBe(0);
+  });
+});
+
+describe('POST /pub transition', () => {
+  test('persists an enter transition', async () => {
+    const res = await post('/pub', {
+      _type: 'transition',
+      tst: 1700000000,
+      wtst: 1699999000,
+      acc: 10,
+      event: 'enter',
+      lat: 42.3601,
+      lon: -71.0589,
+      tid: 'AB',
+      desc: 'Office',
+      t: 'c',
+      rid: 'region-1',
+    });
+
+    expect(res.status).toBe(200);
+    const row = db.query('SELECT * FROM transitions').get() as any;
+    expect(row.event).toBe('enter');
+    expect(row.tst).toBe(1700000000);
+    expect(row.wtst).toBe(1699999000);
+    expect(row.desc).toBe('Office');
+    expect(row.rid).toBe('region-1');
+  });
+
+  test('persists a leave transition with sparse fields', async () => {
+    await post('/pub', {
+      _type: 'transition',
+      tst: 1700001000,
+      wtst: 1699999000,
+      acc: 5,
+      event: 'leave',
+      desc: 'Home',
+      rid: 'region-2',
+    });
+
+    const row = db.query('SELECT * FROM transitions').get() as any;
+    expect(row.event).toBe('leave');
+    expect(row.desc).toBe('Home');
+    expect(row.rid).toBe('region-2');
+    expect(row.lat).toBeNull();
+    expect(row.lon).toBeNull();
+  });
+
+  test('persists encrypted transitions', async () => {
+    const transition = {
+      _type: 'transition' as const,
+      tst: 1700000000,
+      wtst: 1699999000,
+      acc: 10,
+      event: 'enter' as const,
+      lat: 42.3601,
+      lon: -71.0589,
+      tid: 'AB',
+      desc: 'Office',
+      t: 'c' as const,
+      rid: 'region-1',
+    };
+
+    const res = await post('/pub', {
+      _type: 'encrypted',
+      data: encryptor.encrypt(JSON.stringify(transition)),
+    });
+
+    expect(res.status).toBe(200);
+    const row = db.query('SELECT * FROM transitions').get() as any;
+    expect(row.event).toBe('enter');
+    expect(row.tid).toBe('AB');
+    expect(row.desc).toBe('Office');
+    expect(row.rid).toBe('region-1');
+  });
+
+  test('persists minimal encrypted leave transitions', async () => {
+    const transition = {
+      _type: 'transition',
+      tst: 1700001000,
+      wtst: 1699999000,
+      acc: 5,
+      event: 'leave',
+    };
+
+    await post('/pub', {
+      _type: 'encrypted',
+      data: encryptor.encrypt(JSON.stringify(transition)),
+    });
+
+    const row = db.query('SELECT * FROM transitions').get() as any;
+    expect(row.event).toBe('leave');
+    expect(row.tst).toBe(1700001000);
+    expect(row.wtst).toBe(1699999000);
+    expect(row.desc).toBeNull();
   });
 });

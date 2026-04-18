@@ -1,4 +1,10 @@
-import type { Address, LocationPayload, ReverseGeocodingResult, TransitionPayload, WaypointPayload } from '@/domain/types.ts';
+import type {
+  Address,
+  GeocodingResult,
+  LocationPayload,
+  TransitionPayload,
+  WaypointPayload,
+} from '@/domain/types.ts';
 
 export interface LocationService {
   saveLocation(payload: LocationPayload): void | Promise<void>;
@@ -25,6 +31,10 @@ export interface PayloadDecryptor {
   decrypt(ciphertext: string): Uint8Array;
 }
 
-export interface ReverseGeocoder {
-  reverseGeocode(lat: number, lon: number): Promise<ReverseGeocodingResult>;
+export interface Geocoder {
+  reverseGeocode(lat: number, lon: number): Promise<GeocodingResult>;
+}
+
+export interface NotificationSender {
+  sendNotification(subject: string, body: string): Promise<void>;
 }

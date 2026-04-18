@@ -30,7 +30,7 @@
      * Clean code / diff hygiene
      * ========= */
     "no-unused-vars": [
-      "warn",
+      "error",
       {
         "argsIgnorePattern": "^_",
         "varsIgnorePattern": "^_",

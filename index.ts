@@ -1,2 +1,2 @@
 // Delegate to the CLI dispatcher
-await import("./src/entrypoints/main.ts");
+await import('./src/entrypoints/main.ts');
