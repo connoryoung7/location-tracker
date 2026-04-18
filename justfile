@@ -98,5 +98,17 @@ compose-logs:
 test-data url="http://localhost:3000":
     ./test-data/send-all.sh {{url}}
 
+# List all GitHub Actions jobs discovered by act
+act-list:
+    act -l
+
+# Run the CI workflow locally via act (simulates push to main)
+act-ci:
+    act push -W .github/workflows/ci.yml --container-architecture linux/amd64
+
+# Dry-run the CI workflow (prints plan, runs nothing)
+act-dry:
+    act push -W .github/workflows/ci.yml -n --container-architecture linux/amd64
+
 # Run all checks (typecheck, lint, test)
 check: typecheck lint test

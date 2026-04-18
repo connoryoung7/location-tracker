@@ -1,39 +1,22 @@
 # location-tracker
 
-## Setup
+## Testing GitHub Actions workflows locally
+
+Workflows in `.github/workflows/` can be exercised locally with [`act`](https://github.com/nektos/act) so problems are caught before pushing to `main`.
 
 ### Prerequisites
 
-- [Bun](https://bun.sh)
-- [prek](https://prek.j178.dev) (`brew install prek`)
+- [`act`](https://github.com/nektos/act) — `brew install act`
+- Docker running (act spins up containers that mimic GitHub-hosted runners)
 
-### Install
+### Recipes
 
-```sh
-bun install
-prek install   # or: just hooks-install
-```
+| Command | What it does |
+|---------|--------------|
+| `just act-list` | List all workflows and jobs act discovers in `.github/workflows/` |
+| `just act-dry` | Dry-run the CI workflow — prints the execution plan without running steps |
+| `just act-ci` | Run the CI workflow end-to-end, simulating a push to `main` |
 
-### Git hooks
+All run-style recipes pass `--container-architecture linux/amd64` so the default runner images work on Apple Silicon.
 
-[prek](https://prek.j178.dev) manages the pre-commit hooks defined in `prek.toml`:
-
-- **oxfmt** — formats staged TypeScript files
-- **oxlint** — lints staged TypeScript files
-- **conventional-commit** — enforces [Conventional Commits](https://www.conventionalcommits.org) on commit messages
-
-Commit messages must follow the format:
-
-```
-<type>[optional scope][optional !]: <description>
-```
-
-Valid types: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `chore`, `ci`, `build`, `revert`
-
-Examples:
-
-```
-feat(auth): add API key rotation
-fix: handle null location payload
-chore!: drop support for MQTT v3
-```
+First invocation of `just act-ci` pulls the `catthehacker/ubuntu:act-latest` image (~1 GB); subsequent runs reuse it.
