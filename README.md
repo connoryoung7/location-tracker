@@ -6,6 +6,8 @@
 
 - [Bun](https://bun.sh)
 - [prek](https://prek.j178.dev) (`brew install prek`)
+- [Docker](https://www.docker.com) — required by `just lint` / `just check`
+  (used to run hadolint in a pinned container)
 
 ### Install
 
