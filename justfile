@@ -28,8 +28,8 @@ lint-ts:
 
 # Lint Dockerfiles with hadolint (run as a pinned Docker container)
 lint-docker:
-    docker run --rm -v "$PWD:/workdir" -w /workdir hadolint/hadolint:v2.12.0 \
-        hadolint Dockerfile Dockerfile.dev
+    docker run --rm --entrypoint hadolint -v "$PWD:/workdir" -w /workdir hadolint/hadolint:v2.12.0 \
+        Dockerfile Dockerfile.dev
 
 # Lint Markdown files with markdownlint-cli
 lint-markdown:
