@@ -2,14 +2,14 @@ import type { Logger } from '@/domain/ports.ts';
 
 export class ConsoleLogger implements Logger {
   info(message: string, data?: unknown): void {
-    console.warn(`[INFO] ${message}`, data !== undefined ? data : '');
+    console.warn('%s', `[INFO] ${message}`, data !== undefined ? data : '');
   }
 
   warn(message: string, data?: unknown): void {
-    console.warn(`[WARN] ${message}`, data !== undefined ? data : '');
+    console.warn('%s', `[WARN] ${message}`, data !== undefined ? data : '');
   }
 
   error(message: string, data?: unknown): void {
-    console.error(`[ERROR] ${message}`, data !== undefined ? data : '');
+    console.error('%s', `[ERROR] ${message}`, data !== undefined ? data : '');
   }
 }

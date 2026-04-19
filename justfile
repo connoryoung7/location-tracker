@@ -52,6 +52,10 @@ fmt:
 fmt-check:
     bunx oxfmt --check src/
 
+# Run Semgrep in Docker against Bun source and Dockerfiles
+semgrep:
+    docker run --rm -v "$PWD/src:/src/src:ro" -v "$PWD/Dockerfile:/src/Dockerfile:ro" -v "$PWD/Dockerfile.dev:/src/Dockerfile.dev:ro" -w /src semgrep/semgrep semgrep scan --scan-unknown-extensions --error --config auto src Dockerfile Dockerfile.dev
+
 # Install dependencies
 install:
     bun install
@@ -74,7 +78,7 @@ docker-run: docker-build
 
 # Run development Docker container with hot reloading
 docker-dev: docker-build-dev
-    docker run -v ./src:/app/src -v ./drizzle:/app/drizzle -v ./tsconfig.json:/app/tsconfig.json -p 3000:3000 location-tracker-dev
+    docker run -v ./src:/home/bun/app/src -v ./drizzle:/home/bun/app/drizzle -v ./tsconfig.json:/home/bun/app/tsconfig.json -p 3000:3000 location-tracker-dev
 
 # Generate a new Drizzle migration from schema changes
 db-generate:
@@ -116,6 +120,7 @@ test-data url="http://localhost:3000":
 ci:
     bun install --frozen-lockfile
     just fmt-check
+    just semgrep
     just check
 
 # Run all checks (typecheck, lint, test)

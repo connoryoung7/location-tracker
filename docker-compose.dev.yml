@@ -23,8 +23,8 @@ services:
     ports:
       - "3000:3000"
     volumes:
-      - .:/app
-      - /app/node_modules
+      - .:/home/bun/app
+      - /home/bun/app/node_modules
     environment:
       POSTGRES_HOST: db
       POSTGRES_PORT: 5432

@@ -1,11 +1,13 @@
 FROM oven/bun:1.3.12
-WORKDIR /app
+WORKDIR /home/bun/app
+RUN chown -R bun:bun /home/bun/app
 
-COPY package.json bun.lock ./
+COPY --chown=bun:bun package.json bun.lock ./
+USER bun
 RUN bun install
 
 # Source code is mounted as a volume at runtime for hot reloading.
-# Run with: docker run -v ./src:/app/src -v ./tsconfig.json:/app/tsconfig.json -p 3000:3000 <image>
+# Run with: docker run -v ./src:/home/bun/app/src -v ./tsconfig.json:/home/bun/app/tsconfig.json -p 3000:3000 <image>
 
 EXPOSE 3000
 
