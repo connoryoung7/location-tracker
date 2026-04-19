@@ -54,7 +54,12 @@ fmt-check:
 
 # Run Semgrep in Docker against Bun source and Dockerfiles
 semgrep:
-    docker run --rm -v "$PWD/src:/src/src:ro" -v "$PWD/Dockerfile:/src/Dockerfile:ro" -v "$PWD/Dockerfile.dev:/src/Dockerfile.dev:ro" -w /src semgrep/semgrep semgrep scan --scan-unknown-extensions --error --config auto src Dockerfile Dockerfile.dev
+    docker run --rm \
+        -v "$PWD/src:/src/src:ro" \
+        -v "$PWD/Dockerfile:/src/Dockerfile:ro" \
+        -v "$PWD/Dockerfile.dev:/src/Dockerfile.dev:ro" \
+        -w /src \
+        semgrep/semgrep:1.159.0 semgrep scan --scan-unknown-extensions --error --config auto src Dockerfile Dockerfile.dev
 
 # Install dependencies
 install:
