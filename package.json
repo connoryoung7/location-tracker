@@ -15,6 +15,7 @@
     "@types/express": "^5.0.6",
     "@types/libsodium-wrappers": "^0.8.2",
     "drizzle-kit": "^0.31.8",
+    "markdownlint-cli": "^0.48.0",
     "oxfmt": "^0.28.0",
     "oxlint": "^1.43.0"
   },

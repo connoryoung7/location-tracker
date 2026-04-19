@@ -24,7 +24,7 @@ prek install   # or: just hooks-install
 
 Commit messages must follow the format:
 
-```
+```text
 <type>[optional scope][optional !]: <description>
 ```
 
@@ -32,9 +32,8 @@ Valid types: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `chore`
 
 Examples:
 
-```
+```text
 feat(auth): add API key rotation
 fix: handle null location payload
 chore!: drop support for MQTT v3
 ```
-
