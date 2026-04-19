@@ -1,4 +1,4 @@
-FROM oven/bun:1.3.9 AS base
+FROM oven/bun:1.3.12 AS base
 WORKDIR /app
 
 # Install dependencies
@@ -7,7 +7,8 @@ COPY package.json bun.lock ./
 RUN bun install --frozen-lockfile --production
 
 # Production image
-FROM base
+FROM oven/bun:1.3.12-distroless
+WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY package.json bun.lock tsconfig.json drizzle.config.ts ./
 COPY src ./src
