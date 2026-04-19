@@ -4,7 +4,6 @@ import { Database } from 'bun:sqlite';
 import { loadConfig } from '@/config.ts';
 import { createHttpServer } from '@/infrastructure/http/server.ts';
 import { LibsodiumDecryptor } from '@/infrastructure/crypto/libsodium.decryptor.ts';
-import { NoopDecryptor } from '@/infrastructure/crypto/noop.decryptor.ts';
 import { PinoLogger } from '@/infrastructure/logging/pino.logger.ts';
 import { runMigrations } from '@/infrastructure/persistence/migrate.ts';
 import { SqliteLocationRepository } from '@/repository/location-repository/sqlite.repository';
@@ -17,9 +16,9 @@ const config = loadConfig();
 const logger = new PinoLogger();
 const reverseGeocoder = new NominatimGeocoder(CoordinatePrecision.Building);
 
-const decryptor = config.encryptionKey
-  ? await LibsodiumDecryptor.create(Buffer.from(btoa(config.encryptionKey), 'base64'))
-  : new NoopDecryptor();
+const decryptor = await LibsodiumDecryptor.create(
+  Buffer.from(btoa(config.encryptionKey), 'base64'),
+);
 
 let deps: Deps;
 
