@@ -3,6 +3,7 @@ import { loadConfig } from './config.ts';
 
 describe('loadConfig', () => {
   const originalEnv = { ...process.env };
+  const validEncryptionKey = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
   const envKeys = [
     'NODE_ENV',
     'PORT',
@@ -18,7 +19,7 @@ describe('loadConfig', () => {
     }
     // Encryption key is required; tests that want to assert it's required
     // must delete it explicitly.
-    process.env.ENCRYPTION_KEY = 'test-encryption-key';
+    process.env.ENCRYPTION_KEY = validEncryptionKey;
   });
 
   afterEach(() => {
@@ -39,7 +40,7 @@ describe('loadConfig', () => {
     expect(config.dbPath).toBe('location-tracker.db');
     expect(config.mqttBrokerUrl).toBe('mqtt://localhost:1883');
     expect(config.databaseUrl).toBeUndefined();
-    expect(config.encryptionKey).toBe('test-encryption-key');
+    expect(config.encryptionKey).toBe(validEncryptionKey);
   });
 
   test('returns custom values from env vars', () => {
@@ -48,7 +49,7 @@ describe('loadConfig', () => {
     process.env.DB_PATH = '/data/app.db';
     process.env.MQTT_BROKER_URL = 'mqtt://broker.example.com:1883';
     process.env.DATABASE_URL = 'postgres://localhost:5432/mydb';
-    process.env.ENCRYPTION_KEY = 'supersecretkey';
+    process.env.ENCRYPTION_KEY = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
 
     const config = loadConfig();
 
@@ -57,7 +58,7 @@ describe('loadConfig', () => {
     expect(config.dbPath).toBe('/data/app.db');
     expect(config.mqttBrokerUrl).toBe('mqtt://broker.example.com:1883');
     expect(config.databaseUrl).toBe('postgres://localhost:5432/mydb');
-    expect(config.encryptionKey).toBe('supersecretkey');
+    expect(config.encryptionKey).toBe('bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb');
   });
 
   test('throws when ENCRYPTION_KEY is missing', () => {
@@ -67,6 +68,11 @@ describe('loadConfig', () => {
 
   test('throws when ENCRYPTION_KEY is an empty string', () => {
     process.env.ENCRYPTION_KEY = '';
+    expect(() => loadConfig()).toThrow();
+  });
+
+  test('throws when ENCRYPTION_KEY is not 32 bytes', () => {
+    process.env.ENCRYPTION_KEY = 'short-key';
     expect(() => loadConfig()).toThrow();
   });
 

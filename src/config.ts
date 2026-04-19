@@ -1,5 +1,15 @@
 import { z } from 'zod';
 
+const SECRETBOX_KEY_BYTES = 32;
+
+function encryptionKeyByteLength(encryptionKey: string): number | undefined {
+  try {
+    return Buffer.from(btoa(encryptionKey), 'base64').length;
+  } catch {
+    return undefined;
+  }
+}
+
 const ConfigSchema = z.object({
   NODE_ENV: z.enum(['production', 'development']).default('development'),
   PORT: z.coerce
@@ -11,7 +21,12 @@ const ConfigSchema = z.object({
   MQTT_BROKER_URL: z.string().default('mqtt://localhost:1883'),
   DATABASE_URL: z.string().optional(),
   // Encryption key should be stored as UTF-16, not as a base64 encoded string
-  ENCRYPTION_KEY: z.string().min(1, 'ENCRYPTION_KEY is required'),
+  ENCRYPTION_KEY: z
+    .string()
+    .min(1, 'ENCRYPTION_KEY is required')
+    .refine((key) => encryptionKeyByteLength(key) === SECRETBOX_KEY_BYTES, {
+      message: `ENCRYPTION_KEY must be ${SECRETBOX_KEY_BYTES} bytes`,
+    }),
 });
 
 export type Config = {
