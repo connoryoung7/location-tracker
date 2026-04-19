@@ -17,4 +17,4 @@ COPY drizzle ./drizzle
 ENV NODE_ENV=production
 EXPOSE 3000
 
-CMD ["bun", "src/entrypoints/main.ts", "http"]
+CMD ["src/entrypoints/main.ts", "http"]
