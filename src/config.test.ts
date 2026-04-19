@@ -1,12 +1,29 @@
-import { test, expect, describe, afterEach } from 'bun:test';
+import { test, expect, describe, beforeEach, afterEach } from 'bun:test';
 import { loadConfig } from './config.ts';
 
 describe('loadConfig', () => {
   const originalEnv = { ...process.env };
+  const validEncryptionKey = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+  const envKeys = [
+    'NODE_ENV',
+    'PORT',
+    'DB_PATH',
+    'MQTT_BROKER_URL',
+    'DATABASE_URL',
+    'ENCRYPTION_KEY',
+  ] as const;
+
+  beforeEach(() => {
+    for (const key of envKeys) {
+      delete process.env[key];
+    }
+    // Encryption key is required; tests that want to assert it's required
+    // must delete it explicitly.
+    process.env.ENCRYPTION_KEY = validEncryptionKey;
+  });
 
   afterEach(() => {
-    // Restore env after each test
-    for (const key of ['PORT', 'DB_PATH', 'MQTT_BROKER_URL', 'DATABASE_URL', 'ENCRYPTION_KEY']) {
+    for (const key of envKeys) {
       if (key in originalEnv) {
         process.env[key] = originalEnv[key];
       } else {
@@ -15,36 +32,64 @@ describe('loadConfig', () => {
     }
   });
 
-  test('returns defaults when no env vars are set', () => {
-    delete process.env.PORT;
-    delete process.env.DB_PATH;
-    delete process.env.MQTT_BROKER_URL;
-    delete process.env.DATABASE_URL;
-    delete process.env.ENCRYPTION_KEY;
-
+  test('returns defaults when only the required encryption key is set', () => {
     const config = loadConfig();
 
+    expect(config.nodeEnv).toBe('development');
     expect(config.port).toBe(3000);
     expect(config.dbPath).toBe('location-tracker.db');
     expect(config.mqttBrokerUrl).toBe('mqtt://localhost:1883');
     expect(config.databaseUrl).toBeUndefined();
-    expect(config.encryptionKey).toBeUndefined();
+    expect(config.encryptionKey).toBe(validEncryptionKey);
   });
 
   test('returns custom values from env vars', () => {
+    process.env.NODE_ENV = 'production';
     process.env.PORT = '8080';
     process.env.DB_PATH = '/data/app.db';
     process.env.MQTT_BROKER_URL = 'mqtt://broker.example.com:1883';
     process.env.DATABASE_URL = 'postgres://localhost:5432/mydb';
-    process.env.ENCRYPTION_KEY = 'supersecretkey';
+    process.env.ENCRYPTION_KEY = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
 
     const config = loadConfig();
 
+    expect(config.nodeEnv).toBe('production');
     expect(config.port).toBe(8080);
     expect(config.dbPath).toBe('/data/app.db');
     expect(config.mqttBrokerUrl).toBe('mqtt://broker.example.com:1883');
     expect(config.databaseUrl).toBe('postgres://localhost:5432/mydb');
-    expect(config.encryptionKey).toBe('supersecretkey');
+    expect(config.encryptionKey).toBe('bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb');
+  });
+
+  test('throws when ENCRYPTION_KEY is missing', () => {
+    delete process.env.ENCRYPTION_KEY;
+    expect(() => loadConfig()).toThrow();
+  });
+
+  test('throws when ENCRYPTION_KEY is an empty string', () => {
+    process.env.ENCRYPTION_KEY = '';
+    expect(() => loadConfig()).toThrow();
+  });
+
+  test('throws when ENCRYPTION_KEY is not 32 bytes', () => {
+    process.env.ENCRYPTION_KEY = 'short-key';
+    expect(() => loadConfig()).toThrow();
+  });
+
+  test('defaults NODE_ENV to development when unset', () => {
+    const config = loadConfig();
+    expect(config.nodeEnv).toBe('development');
+  });
+
+  test('accepts NODE_ENV=production', () => {
+    process.env.NODE_ENV = 'production';
+    const config = loadConfig();
+    expect(config.nodeEnv).toBe('production');
+  });
+
+  test('throws when NODE_ENV is not production or development', () => {
+    process.env.NODE_ENV = 'staging';
+    expect(() => loadConfig()).toThrow();
   });
 
   test('throws when PORT is a privileged port (< 1024)', () => {
