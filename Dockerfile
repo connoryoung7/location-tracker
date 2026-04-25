@@ -1,4 +1,4 @@
-FROM oven/bun:1.3.12 AS base
+FROM oven/bun:1.3.13 AS base
 WORKDIR /app
 
 # Install dependencies
@@ -10,7 +10,7 @@ FROM base AS runtime-dir
 RUN mkdir -p /home/bun/app && chown -R bun:bun /home/bun/app
 
 # Production image
-FROM oven/bun:1.3.12-distroless
+FROM oven/bun:1.3.13-distroless
 COPY --from=runtime-dir --chown=1000:1000 /home/bun/app /home/bun/app
 WORKDIR /home/bun/app
 COPY --from=deps --chown=1000:1000 /app/node_modules ./node_modules
