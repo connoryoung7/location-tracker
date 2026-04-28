@@ -22,13 +22,27 @@ test-watch:
 typecheck:
     bunx tsc --noEmit
 
-# Lint the project
-lint:
+# Lint TypeScript sources with oxlint
+lint-ts:
     bunx oxlint src/
 
-# Lint and auto-fix
+# Lint Dockerfiles with hadolint (run as a pinned Docker container)
+lint-docker:
+    docker run --rm --name location-tracker-hadolint --entrypoint hadolint -v "$PWD:/workdir" -w /workdir \
+        hadolint/hadolint:v2.12.0@sha256:30a8fd2e785ab6176eed53f74769e04f125afb2f74a6c52aef7d463583b6d45e \
+        Dockerfile Dockerfile.dev
+
+# Lint Markdown files with markdownlint-cli
+lint-markdown:
+    bunx markdownlint --config .markdownlint.jsonc --ignore-path .markdownlintignore '**/*.md'
+
+# Lint the project (TypeScript + Dockerfiles + Markdown)
+lint: lint-ts lint-docker lint-markdown
+
+# Lint and auto-fix the project
 lint-fix:
     bunx oxlint --fix src/
+    bunx markdownlint --fix --config .markdownlint.jsonc --ignore-path .markdownlintignore '**/*.md'
 
 # Format the project
 fmt:

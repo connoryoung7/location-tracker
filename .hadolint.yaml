@@ -1,0 +1,6 @@
+failure-threshold: style
+strict-labels: true
+no-color: false
+trusted-registries:
+  - docker.io
+  - ghcr.io
