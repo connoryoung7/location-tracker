@@ -22,9 +22,17 @@ const decryptor = await LibsodiumDecryptor.create(
 
 let deps: Deps;
 
-if (config.databaseUrl) {
-  logger.info(`Using Postgres database at ${config.databaseUrl}`);
-  const sql = new SQL(config.databaseUrl);
+if (config.postgresPassword !== undefined) {
+  logger.info(
+    `Using Postgres database at ${config.postgresHost}:${config.postgresPort}/${config.postgresDb}`,
+  );
+  const sql = new SQL({
+    hostname: config.postgresHost,
+    port: config.postgresPort,
+    database: config.postgresDb,
+    username: config.postgresUser,
+    password: config.postgresPassword,
+  });
   const repo = new PostgresLocationRepository(sql);
   await repo.migrate();
   deps = {

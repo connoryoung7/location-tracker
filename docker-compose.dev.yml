@@ -26,7 +26,11 @@ services:
       - .:/app
       - /app/node_modules
     environment:
-      DATABASE_URL: postgres://location_tracker:location_tracker@db:5432/location_tracker
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: location_tracker
+      POSTGRES_PASSWORD: location_tracker
+      POSTGRES_DB: location_tracker
       PORT: "3000"
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
     depends_on:

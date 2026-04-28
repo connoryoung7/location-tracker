@@ -9,7 +9,11 @@ describe('loadConfig', () => {
     'PORT',
     'DB_PATH',
     'MQTT_BROKER_URL',
-    'DATABASE_URL',
+    'POSTGRES_HOST',
+    'POSTGRES_PORT',
+    'POSTGRES_USER',
+    'POSTGRES_PASSWORD',
+    'POSTGRES_DB',
     'ENCRYPTION_KEY',
   ] as const;
 
@@ -39,7 +43,11 @@ describe('loadConfig', () => {
     expect(config.port).toBe(3001);
     expect(config.dbPath).toBe('location-tracker.db');
     expect(config.mqttBrokerUrl).toBe('mqtt://localhost:1883');
-    expect(config.databaseUrl).toBeUndefined();
+    expect(config.postgresHost).toBe('localhost');
+    expect(config.postgresPort).toBe(5432);
+    expect(config.postgresUser).toBe('location_tracker');
+    expect(config.postgresPassword).toBeUndefined();
+    expect(config.postgresDb).toBe('location_tracker');
     expect(config.encryptionKey).toBe(validEncryptionKey);
   });
 
@@ -48,7 +56,11 @@ describe('loadConfig', () => {
     process.env.PORT = '8080';
     process.env.DB_PATH = '/data/app.db';
     process.env.MQTT_BROKER_URL = 'mqtt://broker.example.com:1883';
-    process.env.DATABASE_URL = 'postgres://localhost:5432/mydb';
+    process.env.POSTGRES_HOST = 'db.example.com';
+    process.env.POSTGRES_PORT = '5433';
+    process.env.POSTGRES_USER = 'myuser';
+    process.env.POSTGRES_PASSWORD = 'secret';
+    process.env.POSTGRES_DB = 'mydb';
     process.env.ENCRYPTION_KEY = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
 
     const config = loadConfig();
@@ -57,7 +69,11 @@ describe('loadConfig', () => {
     expect(config.port).toBe(8080);
     expect(config.dbPath).toBe('/data/app.db');
     expect(config.mqttBrokerUrl).toBe('mqtt://broker.example.com:1883');
-    expect(config.databaseUrl).toBe('postgres://localhost:5432/mydb');
+    expect(config.postgresHost).toBe('db.example.com');
+    expect(config.postgresPort).toBe(5433);
+    expect(config.postgresUser).toBe('myuser');
+    expect(config.postgresPassword).toBe('secret');
+    expect(config.postgresDb).toBe('mydb');
     expect(config.encryptionKey).toBe('bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb');
   });
 
