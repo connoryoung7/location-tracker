@@ -16,7 +16,7 @@ const ConfigSchema = z.object({
     .number()
     .min(1024, 'PORT must be >= 1024 (non-privileged)')
     .max(65535)
-    .default(3000),
+    .default(3001),
   DB_PATH: z.string().default('location-tracker.db'),
   MQTT_BROKER_URL: z.string().default('mqtt://localhost:1883'),
   DATABASE_URL: z.string().optional(),

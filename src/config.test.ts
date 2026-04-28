@@ -36,7 +36,7 @@ describe('loadConfig', () => {
     const config = loadConfig();
 
     expect(config.nodeEnv).toBe('development');
-    expect(config.port).toBe(3000);
+    expect(config.port).toBe(3001);
     expect(config.dbPath).toBe('location-tracker.db');
     expect(config.mqttBrokerUrl).toBe('mqtt://localhost:1883');
     expect(config.databaseUrl).toBeUndefined();
