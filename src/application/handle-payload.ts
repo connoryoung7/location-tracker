@@ -6,6 +6,10 @@ import type {
   GeofenceEvaluator,
   LocationRepository,
   Logger,
+  Geocoder,
+  LocationRepository,
+  Logger,
+  MetricsCollector,
   PayloadDecryptor,
 } from '@/domain/ports.ts';
 import { handleLocation } from '@/application/handlers/location.handler.ts';
@@ -21,6 +25,7 @@ export interface Deps {
   geofence: GeofenceEvaluator;
   eventPublisher: EventPublisher;
   areaRepo: AreaRepository;
+  metrics: MetricsCollector;
 }
 
 export async function handlePayload(payload: OwnTracksPayload, deps: Deps): Promise<void> {

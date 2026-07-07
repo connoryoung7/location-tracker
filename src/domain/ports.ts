@@ -57,3 +57,8 @@ export interface Geocoder {
 export interface NotificationSender {
   sendNotification(subject: string, body: string): Promise<void>;
 }
+
+export interface MetricsCollector {
+  recordRequest(method: string, path: string, statusCode: number, durationMs: number): void;
+  getMetricsText(): Promise<string>;
+}
