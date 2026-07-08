@@ -286,3 +286,14 @@ export type GeocodingResult = {
   lat: number;
   lon: number;
 };
+
+/** A predefined circular geofence owned by a single user. */
+export type Area = {
+  id: string;
+  userId: string;
+  name: string;
+  lat: number;
+  lon: number;
+  /** Radius in meters. */
+  radius: number;
+};

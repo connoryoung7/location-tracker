@@ -59,3 +59,15 @@ export const transitions = sqliteTable('transitions', {
   rid: text('rid'),
   created_at: text('created_at').default(sql`(datetime('now'))`),
 });
+
+export const area_events = sqliteTable('area_events', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  type: text('type').notNull(),
+  user_id: text('user_id').notNull(),
+  area_id: text('area_id').notNull(),
+  area_name: text('area_name'),
+  lat: real('lat').notNull(),
+  lon: real('lon').notNull(),
+  tst: integer('tst').notNull(),
+  created_at: text('created_at').default(sql`(datetime('now'))`),
+});

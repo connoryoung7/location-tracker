@@ -5,6 +5,7 @@ import type {
   TransitionPayload,
   WaypointPayload,
 } from '@/domain/types.ts';
+import type { GeofenceEvent } from '@/domain/events.ts';
 import type { LocationRepository } from '@/domain/ports.ts';
 
 export class PostgresLocationRepository implements LocationRepository {
@@ -147,6 +148,34 @@ export class PostgresLocationRepository implements LocationRepository {
         t TEXT,
         rid TEXT,
         created_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `;
+    await this.conn`
+      CREATE TABLE IF NOT EXISTS area_events (
+        id SERIAL PRIMARY KEY,
+        type TEXT NOT NULL,
+        user_id TEXT NOT NULL,
+        area_id TEXT NOT NULL,
+        area_name TEXT,
+        lat DOUBLE PRECISION NOT NULL,
+        lon DOUBLE PRECISION NOT NULL,
+        tst INTEGER NOT NULL,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `;
+  }
+
+  async saveAreaEvent(event: GeofenceEvent): Promise<void> {
+    await this.conn`
+      INSERT INTO area_events (type, user_id, area_id, area_name, lat, lon, tst)
+      VALUES (
+        ${event._type},
+        ${event.userId},
+        ${event.areaId},
+        ${event.areaName ?? null},
+        ${event.lat},
+        ${event.lon},
+        ${event.tst}
       )
     `;
   }

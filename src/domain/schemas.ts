@@ -162,3 +162,12 @@ export const OwnTracksPayloadSchema = z.discriminatedUnion('_type', [
   CmdPayloadSchema,
   RequestPayloadSchema,
 ]);
+
+export const AreaSchema = z.object({
+  id: z.string().min(1),
+  userId: z.string().min(1),
+  name: z.string().min(1),
+  lat: z.number().min(-90).max(90),
+  lon: z.number().min(-180).max(180),
+  radius: z.number().positive(),
+});
