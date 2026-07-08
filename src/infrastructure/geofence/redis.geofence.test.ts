@@ -1,7 +1,6 @@
 import { test, expect, describe, beforeAll, afterAll, beforeEach } from 'bun:test';
-import type { RedisClient } from 'bun';
+import { RedisClient } from 'bun';
 import { Database } from 'bun:sqlite';
-import { createRedisClient } from '@/infrastructure/redis/client.ts';
 import { RedisAreaRepository } from '@/repository/area-repository/redis.repository.ts';
 import { RedisGeofenceEvaluator } from '@/infrastructure/geofence/redis.geofence-evaluator.ts';
 import { RedisEventPublisher } from '@/infrastructure/events/redis.event-publisher.ts';
@@ -26,7 +25,7 @@ describe.skipIf(!REDIS_URL)('RedisAreaRepository + RedisGeofenceEvaluator', () =
   let userCounter = 0;
 
   beforeAll(() => {
-    redis = createRedisClient(REDIS_URL!);
+    redis = new RedisClient(REDIS_URL!);
     areaRepo = new RedisAreaRepository(redis);
     geofence = new RedisGeofenceEvaluator(redis, THRESHOLD_SECONDS);
   });
@@ -288,7 +287,7 @@ describe.skipIf(!REDIS_URL)('RedisAreaRepository + RedisGeofenceEvaluator', () =
     // A subscribed connection can only ping/subscribe/unsubscribe, so the
     // subscriber needs its own connection separate from the one used to
     // evaluate/publish.
-    const subscriber = createRedisClient(REDIS_URL!);
+    const subscriber = new RedisClient(REDIS_URL!);
     const received: string[] = [];
     await subscriber.subscribe('geofence:events', (message) => {
       received.push(message);

@@ -1,5 +1,3 @@
-import { RedisClient } from 'bun';
-
-export function createRedisClient(url: string): RedisClient {
-  return new RedisClient(url);
+export function createRedisClient(): typeof Bun.redis {
+  return Bun.redis;
 }
