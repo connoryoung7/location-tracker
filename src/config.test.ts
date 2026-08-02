@@ -15,6 +15,8 @@ describe('loadConfig', () => {
     'POSTGRES_PASSWORD',
     'POSTGRES_DB',
     'ENCRYPTION_KEY',
+    'REDIS_URL',
+    'GEOFENCE_EXIT_THRESHOLD_SECONDS',
   ] as const;
 
   beforeEach(() => {
@@ -49,6 +51,8 @@ describe('loadConfig', () => {
     expect(config.postgresPassword).toBeUndefined();
     expect(config.postgresDb).toBe('location_tracker');
     expect(config.encryptionKey).toBe(validEncryptionKey);
+    expect(config.redisUrl).toBe('redis://localhost:6379');
+    expect(config.geofenceExitThresholdSeconds).toBe(60);
   });
 
   test('returns custom values from env vars', () => {
@@ -62,6 +66,8 @@ describe('loadConfig', () => {
     process.env.POSTGRES_PASSWORD = 'secret';
     process.env.POSTGRES_DB = 'mydb';
     process.env.ENCRYPTION_KEY = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+    process.env.REDIS_URL = 'redis://redis.example.com:6380';
+    process.env.GEOFENCE_EXIT_THRESHOLD_SECONDS = '120';
 
     const config = loadConfig();
 
@@ -75,6 +81,8 @@ describe('loadConfig', () => {
     expect(config.postgresPassword).toBe('secret');
     expect(config.postgresDb).toBe('mydb');
     expect(config.encryptionKey).toBe('bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb');
+    expect(config.redisUrl).toBe('redis://redis.example.com:6380');
+    expect(config.geofenceExitThresholdSeconds).toBe(120);
   });
 
   test('throws when ENCRYPTION_KEY is missing', () => {

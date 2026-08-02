@@ -11,6 +11,15 @@ import { PostgresLocationRepository } from '@/repository/location-repository/pos
 import { NominatimGeocoder } from '@/infrastructure/geocoder/nominatim.geocoder';
 import { CoordinatePrecision } from '@/domain/types';
 import type { Deps } from '@/application/handle-payload.ts';
+import { createRedisClient } from '@/infrastructure/redis/client.ts';
+import { RedisAreaRepository } from '@/repository/area-repository/redis.repository.ts';
+import { RedisGeofenceEvaluator } from '@/infrastructure/geofence/redis.geofence-evaluator.ts';
+import { RedisEventPublisher } from '@/infrastructure/events/redis.event-publisher.ts';
+import { DbEventPublisher } from '@/infrastructure/events/db.event-publisher.ts';
+import { NotificationEventPublisher } from '@/infrastructure/events/notification.event-publisher.ts';
+import { CompositeEventPublisher } from '@/infrastructure/events/composite.event-publisher.ts';
+import { LogNotificationSender } from '@/infrastructure/notifications/log.notification-sender.ts';
+import type { LocationRepository } from '@/domain/ports.ts';
 
 const config = loadConfig();
 const logger = new PinoLogger();
@@ -19,6 +28,22 @@ const reverseGeocoder = new NominatimGeocoder(CoordinatePrecision.Building);
 const decryptor = await LibsodiumDecryptor.create(
   Buffer.from(btoa(config.encryptionKey), 'base64'),
 );
+
+const redis = createRedisClient();
+const areaRepo = new RedisAreaRepository(redis);
+const geofence = new RedisGeofenceEvaluator(redis, config.geofenceExitThresholdSeconds);
+const notificationSender = new LogNotificationSender(logger);
+
+function buildEventPublisher(repo: LocationRepository) {
+  return new CompositeEventPublisher(
+    [
+      new RedisEventPublisher(redis),
+      new DbEventPublisher(repo),
+      new NotificationEventPublisher(notificationSender),
+    ],
+    logger,
+  );
+}
 
 let deps: Deps;
 
@@ -40,15 +65,22 @@ if (config.postgresPassword !== undefined) {
     logger,
     decryptor,
     reverseGeocoder,
+    geofence,
+    eventPublisher: buildEventPublisher(repo),
+    areaRepo,
   };
 } else {
   const db = new Database(config.dbPath, { create: true });
   runMigrations(db);
+  const repo = new SqliteLocationRepository(db);
   deps = {
-    repo: new SqliteLocationRepository(db),
+    repo,
     logger,
     decryptor,
     reverseGeocoder,
+    geofence,
+    eventPublisher: buildEventPublisher(repo),
+    areaRepo,
   };
 }
 

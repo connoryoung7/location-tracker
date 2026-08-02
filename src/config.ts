@@ -31,6 +31,8 @@ const ConfigSchema = z.object({
     .refine((key) => encryptionKeyByteLength(key) === SECRETBOX_KEY_BYTES, {
       message: `ENCRYPTION_KEY must be ${SECRETBOX_KEY_BYTES} bytes`,
     }),
+  REDIS_URL: z.string().default('redis://localhost:6379'),
+  GEOFENCE_EXIT_THRESHOLD_SECONDS: z.coerce.number().default(60),
 });
 
 export type Config = {
@@ -44,6 +46,8 @@ export type Config = {
   postgresPassword?: string;
   postgresDb: string;
   encryptionKey: string;
+  redisUrl: string;
+  geofenceExitThresholdSeconds: number;
 };
 
 export function loadConfig(): Config {
@@ -58,6 +62,8 @@ export function loadConfig(): Config {
     POSTGRES_PASSWORD,
     POSTGRES_DB,
     ENCRYPTION_KEY,
+    REDIS_URL,
+    GEOFENCE_EXIT_THRESHOLD_SECONDS,
   } = process.env;
   const env = ConfigSchema.parse({
     NODE_ENV,
@@ -70,6 +76,8 @@ export function loadConfig(): Config {
     POSTGRES_PASSWORD,
     POSTGRES_DB,
     ENCRYPTION_KEY,
+    REDIS_URL,
+    GEOFENCE_EXIT_THRESHOLD_SECONDS,
   });
   return {
     nodeEnv: env.NODE_ENV,
@@ -82,5 +90,7 @@ export function loadConfig(): Config {
     postgresPassword: env.POSTGRES_PASSWORD,
     postgresDb: env.POSTGRES_DB,
     encryptionKey: env.ENCRYPTION_KEY,
+    redisUrl: env.REDIS_URL,
+    geofenceExitThresholdSeconds: env.GEOFENCE_EXIT_THRESHOLD_SECONDS,
   };
 }

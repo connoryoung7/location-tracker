@@ -1,5 +1,13 @@
 import type { OwnTracksPayload } from '@/domain/types.ts';
-import type { Geocoder, LocationRepository, Logger, PayloadDecryptor } from '@/domain/ports.ts';
+import type {
+  AreaRepository,
+  EventPublisher,
+  Geocoder,
+  GeofenceEvaluator,
+  LocationRepository,
+  Logger,
+  PayloadDecryptor,
+} from '@/domain/ports.ts';
 import { handleLocation } from '@/application/handlers/location.handler.ts';
 import { handleTransition } from '@/application/handlers/transition.handler.ts';
 import { handleWaypoint } from '@/application/handlers/waypoint.handler.ts';
@@ -10,6 +18,9 @@ export interface Deps {
   logger: Logger;
   decryptor: PayloadDecryptor;
   reverseGeocoder: Geocoder;
+  geofence: GeofenceEvaluator;
+  eventPublisher: EventPublisher;
+  areaRepo: AreaRepository;
 }
 
 export async function handlePayload(payload: OwnTracksPayload, deps: Deps): Promise<void> {

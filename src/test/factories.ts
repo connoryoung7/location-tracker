@@ -1,5 +1,6 @@
 import type {
   Address,
+  Area,
   GeocodingResult,
   LocationPayload,
   TransitionPayload,
@@ -55,6 +56,18 @@ export function buildGeocodingResult(overrides?: Partial<GeocodingResult>): Geoc
     lat: 42.3601,
     lon: -71.0589,
     address: buildAddress(),
+    ...overrides,
+  };
+}
+
+export function buildArea(overrides?: Partial<Area>): Area {
+  return {
+    id: 'area-1',
+    userId: 'AB',
+    name: 'Home',
+    lat: 42.3601,
+    lon: -71.0589,
+    radius: 100,
     ...overrides,
   };
 }

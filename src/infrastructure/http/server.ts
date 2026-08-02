@@ -1,5 +1,5 @@
 import express from 'express';
-import { OwnTracksPayloadSchema } from '@/domain/schemas.ts';
+import { AreaSchema, OwnTracksPayloadSchema } from '@/domain/schemas.ts';
 import { handlePayload, type Deps } from '@/application/handle-payload.ts';
 
 export function createHttpServer(deps: Deps) {
@@ -38,6 +38,28 @@ export function createHttpServer(deps: Deps) {
 
     await handlePayload(result.data, deps);
     res.status(200).json([]);
+  });
+
+  app.post('/areas', async (req, res) => {
+    const result = AreaSchema.safeParse(req.body);
+
+    if (!result.success) {
+      res.status(400).json({ error: 'Invalid area', issues: result.error.issues });
+      return;
+    }
+
+    await deps.areaRepo.addArea(result.data);
+    res.status(200).json(result.data);
+  });
+
+  app.get('/areas/:userId', async (req, res) => {
+    const areas = await deps.areaRepo.listAreas(req.params.userId);
+    res.status(200).json(areas);
+  });
+
+  app.delete('/areas/:userId/:areaId', async (req, res) => {
+    await deps.areaRepo.removeArea(req.params.userId, req.params.areaId);
+    res.status(204).send();
   });
 
   return app;

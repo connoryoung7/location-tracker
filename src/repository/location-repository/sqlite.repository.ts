@@ -5,6 +5,7 @@ import type {
   TransitionPayload,
   WaypointPayload,
 } from '@/domain/types.ts';
+import type { GeofenceEvent } from '@/domain/events.ts';
 import type { LocationRepository } from '@/domain/ports.ts';
 
 export class SqliteLocationRepository implements LocationRepository {
@@ -85,6 +86,22 @@ export class SqliteLocationRepository implements LocationRepository {
         address.country ?? null,
         address.countryCode ?? null,
         address.postalCode ?? null,
+      ],
+    );
+  }
+
+  saveAreaEvent(event: GeofenceEvent): void {
+    this.db.run(
+      `INSERT INTO area_events (type, user_id, area_id, area_name, lat, lon, tst)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [
+        event._type,
+        event.userId,
+        event.areaId,
+        event.areaName ?? null,
+        event.lat,
+        event.lon,
+        event.tst,
       ],
     );
   }

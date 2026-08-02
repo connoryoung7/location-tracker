@@ -1,10 +1,12 @@
 import type {
   Address,
+  Area,
   GeocodingResult,
   LocationPayload,
   TransitionPayload,
   WaypointPayload,
 } from '@/domain/types.ts';
+import type { DomainEvent, GeofenceEvent } from '@/domain/events.ts';
 
 export interface LocationService {
   saveLocation(payload: LocationPayload): void | Promise<void>;
@@ -17,7 +19,24 @@ export interface LocationRepository {
   saveTransition(payload: TransitionPayload): void | Promise<void>;
   saveWaypoint(payload: WaypointPayload): void | Promise<void>;
   saveAddress(lat: number, lon: number, address: Address): void | Promise<void>;
+  saveAreaEvent(event: GeofenceEvent): void | Promise<void>;
   healthCheck(): Promise<void>;
+}
+
+export interface AreaRepository {
+  addArea(area: Area): void | Promise<void>;
+  removeArea(userId: string, areaId: string): void | Promise<void>;
+  listAreas(userId: string): Promise<Area[]>;
+  getArea(userId: string, areaId: string): Promise<Area | undefined>;
+  healthCheck(): Promise<void>;
+}
+
+export interface GeofenceEvaluator {
+  evaluate(userId: string, lon: number, lat: number, tst: number): Promise<GeofenceEvent[]>;
+}
+
+export interface EventPublisher {
+  publish(event: DomainEvent): void | Promise<void>;
 }
 
 export interface Logger {

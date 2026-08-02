@@ -5,6 +5,7 @@ import { ConsoleLogger } from '@/infrastructure/logging/console.logger.ts';
 import { runMigrations } from '@/infrastructure/persistence/migrate.ts';
 import { SqliteLocationRepository } from '@/repository/location-repository/sqlite.repository';
 import { LibsodiumDecryptor } from '@/infrastructure/crypto/libsodium.decryptor';
+import { mockAreaRepository, mockEventPublisher, mockGeofenceEvaluator } from '@/test/mocks.ts';
 import type { Deps } from '@/application/handle-payload.ts';
 import type { Server } from 'node:http';
 import type { Geocoder, PayloadDecryptor } from '@/domain/ports';
@@ -34,6 +35,9 @@ beforeAll(async () => {
     reverseGeocoder: {
       reverseGeocode: async () => mockGeocodeResult,
     } satisfies Geocoder,
+    geofence: mockGeofenceEvaluator(),
+    eventPublisher: mockEventPublisher(),
+    areaRepo: mockAreaRepository(),
   };
 
   const app = createHttpServer(deps);
