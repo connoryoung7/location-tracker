@@ -6,9 +6,6 @@ import type {
   GeofenceEvaluator,
   LocationRepository,
   Logger,
-  Geocoder,
-  LocationRepository,
-  Logger,
   MetricsCollector,
   NotificationSender,
 } from '@/domain/ports.ts';

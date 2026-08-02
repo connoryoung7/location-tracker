@@ -31,7 +31,7 @@ const decryptor = await LibsodiumDecryptor.create(
   Buffer.from(btoa(config.encryptionKey), 'base64'),
 );
 
-const redis = createRedisClient();
+const redis = createRedisClient(config.redisUrl);
 const areaRepo = new RedisAreaRepository(redis);
 const geofence = new RedisGeofenceEvaluator(redis, config.geofenceExitThresholdSeconds);
 const notificationSender = new LogNotificationSender(logger);

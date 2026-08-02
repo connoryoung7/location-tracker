@@ -85,6 +85,14 @@ docker-run: docker-build
 docker-dev: docker-build-dev
     docker run -v ./src:/home/bun/app/src -v ./drizzle:/home/bun/app/drizzle -v ./tsconfig.json:/home/bun/app/tsconfig.json -p 3000:3000 location-tracker-dev
 
+# Start a throwaway Redis for the geofence tests
+redis-test:
+    docker run -d --rm --name location-tracker-redis-test -p 6379:6379 redis:7-alpine
+
+# Stop the throwaway Redis
+redis-test-stop:
+    docker stop location-tracker-redis-test
+
 # Generate a new Drizzle migration from schema changes
 db-generate:
     bunx drizzle-kit generate
@@ -118,7 +126,7 @@ compose-logs:
     docker compose logs -f
 
 # Send all test-data payloads to the OwnTracks endpoint
-test-data url="http://localhost:3000":
+test-data url="http://localhost:3001":
     ./test-data/send-all.sh {{url}}
 
 # Run the full CI pipeline locally (mirrors .github/workflows/ci.yml)
