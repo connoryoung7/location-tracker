@@ -232,7 +232,7 @@ routes, since they reuse the running server and `AreaRepository`.)
 - `GEOFENCE_EXIT_THRESHOLD_SECONDS` → `geofenceExitThresholdSeconds`
   (`z.coerce.number()`, default `60`).
 
-**Docker** — add a `redis` service to `compose.yaml` and `docker-compose.dev.yml`
+**Docker** — add a `redis` service to `compose.yaml` and `compose.dev.yaml`
 (`redis:7-alpine`, command `redis-server --appendonly yes`, a named volume for AOF
 persistence so predefined areas survive restarts), and pass `REDIS_URL` to the
 `http` service. (Follow `.claude/skills/create-dockerfile` only if a Dockerfile
@@ -322,7 +322,7 @@ cushion timing. `beforeEach` flushes the test keyspace.
 
 ## Verification (end-to-end)
 
-1. `docker compose -f docker-compose.dev.yml up -d redis` (or run `redis-server
+1. `docker compose -f compose.dev.yaml up -d redis` (or run `redis-server
    --appendonly yes` locally).
 2. `bun test` — all unit + (Redis-guarded) integration tests green. Per project
    memory, review any `oxfmt` diffs for corrupted numeric literals in the
@@ -365,5 +365,5 @@ cushion timing. `beforeEach` flushes the test keyspace.
   `@/entrypoints/http.ts`; `@/infrastructure/http/server.ts`;
   `@/infrastructure/persistence/schema.ts`;
   `@/repository/location-repository/{sqlite,postgres}.repository.ts`;
-  `@/config.ts` (+ `config.test.ts`); `compose.yaml`; `docker-compose.dev.yml`;
+  `@/config.ts` (+ `config.test.ts`); `compose.yaml`; `compose.dev.yaml`;
   `@/test/{factories.ts, mocks.ts}`.

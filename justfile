@@ -113,13 +113,13 @@ compose-up:
 compose-down:
     docker compose down
 
-# Start dev Docker Compose services
+# Start dev Docker Compose services (app, Postgres, Redis, Prometheus)
 up:
-    docker compose -f docker-compose.dev.yml up -d --build
+    docker compose -f compose.dev.yaml up -d --build
 
 # Stop dev Docker Compose services
 down:
-    docker compose -f docker-compose.dev.yml down
+    docker compose -f compose.dev.yaml down
 
 # Follow Docker Compose logs
 compose-logs:

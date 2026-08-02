@@ -1,0 +1,22 @@
+# Prometheus config for local development only (see compose.dev.yaml).
+# Production scraping is handled outside this repo.
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  # Prometheus scraping itself — useful for confirming the stack is alive
+  # before assuming the app target is at fault.
+  - job_name: prometheus
+    static_configs:
+      - targets: ['localhost:9090']
+
+  - job_name: location-tracker
+    # The app exposes /_metrics, not Prometheus' default /metrics.
+    # See the GET /_metrics route in src/infrastructure/http/server.ts.
+    metrics_path: /_metrics
+    static_configs:
+      # 'http' is the compose service name; 3000 is the PORT it sets in
+      # compose.dev.yaml. This resolves on the compose network, not localhost.
+      - targets: ['http:3000']
