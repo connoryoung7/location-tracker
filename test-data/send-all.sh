@@ -1,15 +1,22 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-BASE_URL="${1:-http://localhost:3000}"
+BASE_URL="${1:-http://localhost:3001}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-ENDPOINT="$BASE_URL/owntracks"
+ENDPOINT="$BASE_URL/pub"
 
 passed=0
 failed=0
 
 for file in "$SCRIPT_DIR"/*.json; do
   name=$(basename "$file")
+
+  # Not every JSON file here is an OwnTracks payload — reverse-geocodings.json
+  # is a generated Nominatim cache (see scripts/generate-reverse-geocodings.ts).
+  if ! grep -q '"_type"' "$file"; then
+    continue
+  fi
+
   printf "%-30s " "$name"
 
   http_code=$(curl -s -o /tmp/owntracks-response -w "%{http_code}" \

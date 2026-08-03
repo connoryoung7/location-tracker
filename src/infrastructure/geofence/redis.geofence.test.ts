@@ -15,17 +15,19 @@ import { stationaryCoordinates, walkingCoordinates } from '@/test/coordinates.ts
 import type { EventPublisher } from '@/domain/ports.ts';
 import type { GeofenceEvent } from '@/domain/events.ts';
 
-const REDIS_URL = process.env.REDIS_URL;
+// Defaults to db index 1 so the FLUSHDB in beforeEach cannot wipe the dev
+// Redis (db 0), which persists real area data via --appendonly.
+const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6379/1';
 const THRESHOLD_SECONDS = 60;
 
-describe.skipIf(!REDIS_URL)('RedisAreaRepository + RedisGeofenceEvaluator', () => {
+describe('RedisAreaRepository + RedisGeofenceEvaluator', () => {
   let redis: RedisClient;
   let areaRepo: RedisAreaRepository;
   let geofence: RedisGeofenceEvaluator;
   let userCounter = 0;
 
   beforeAll(() => {
-    redis = new RedisClient(REDIS_URL!);
+    redis = new RedisClient(REDIS_URL);
     areaRepo = new RedisAreaRepository(redis);
     geofence = new RedisGeofenceEvaluator(redis, THRESHOLD_SECONDS);
   });
@@ -287,7 +289,7 @@ describe.skipIf(!REDIS_URL)('RedisAreaRepository + RedisGeofenceEvaluator', () =
     // A subscribed connection can only ping/subscribe/unsubscribe, so the
     // subscriber needs its own connection separate from the one used to
     // evaluate/publish.
-    const subscriber = new RedisClient(REDIS_URL!);
+    const subscriber = new RedisClient(REDIS_URL);
     const received: string[] = [];
     await subscriber.subscribe('geofence:events', (message) => {
       received.push(message);

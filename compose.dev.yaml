@@ -2,7 +2,10 @@ services:
   db:
     image: postgres:17-alpine
     ports:
-      - "5432:5432"
+      # Published on 5433 to avoid clashing with a Postgres already running on
+      # the host's default 5432. In-container traffic still uses 5432 (see the
+      # http service's POSTGRES_PORT below).
+      - "5433:5432"
     environment:
       POSTGRES_USER: location_tracker
       POSTGRES_PASSWORD: location_tracker
@@ -53,6 +56,22 @@ services:
       redis:
         condition: service_healthy
 
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:9090/-/healthy"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    depends_on:
+      - http
+
 volumes:
   pg_data:
   redis_data:
+  prometheus_data:

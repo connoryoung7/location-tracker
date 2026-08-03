@@ -11,8 +11,14 @@ export function createHttpServer(deps: Deps) {
     res.on('finish', () => {
       const duration = Date.now() - start;
       deps.logger.info(`${req.method} ${req.path} ${res.statusCode} ${duration}ms`);
+      deps.metrics.recordRequest(req.method, req.path, res.statusCode, duration);
     });
     next();
+  });
+
+  app.get('/_metrics', async (_req, res) => {
+    res.set('Content-Type', 'text/plain; version=0.0.4; charset=utf-8');
+    res.send(await deps.metrics.getMetricsText());
   });
 
   app.get('/', (_req, res) => {

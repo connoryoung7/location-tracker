@@ -52,10 +52,20 @@ services:
       redis:
         condition: service_healthy
     networks:
-      - internal
+      internal: {}
+      # Shared with the monitoring-services stack so Prometheus can scrape
+      # /_metrics. The alias is explicit because bare service names are not
+      # unique across stacks sharing a network.
+      monitoring:
+        aliases:
+          - location-tracker-http
 
 networks:
   internal:
+  # Created once per host, outside any stack: `docker network create monitoring`.
+  monitoring:
+    external: true
+    name: monitoring
 
 volumes:
   pg_data:

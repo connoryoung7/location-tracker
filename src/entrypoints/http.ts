@@ -9,6 +9,7 @@ import { runMigrations } from '@/infrastructure/persistence/migrate.ts';
 import { SqliteLocationRepository } from '@/repository/location-repository/sqlite.repository';
 import { PostgresLocationRepository } from '@/repository/location-repository/postgres.repository';
 import { NominatimGeocoder } from '@/infrastructure/geocoder/nominatim.geocoder';
+import { PrometheusMetricsCollector } from '@/infrastructure/metrics/prometheus.metrics';
 import { CoordinatePrecision } from '@/domain/types';
 import type { Deps } from '@/application/handle-payload.ts';
 import { createRedisClient } from '@/infrastructure/redis/client.ts';
@@ -24,12 +25,13 @@ import type { LocationRepository } from '@/domain/ports.ts';
 const config = loadConfig();
 const logger = new PinoLogger();
 const reverseGeocoder = new NominatimGeocoder(CoordinatePrecision.Building);
+const metrics = new PrometheusMetricsCollector();
 
 const decryptor = await LibsodiumDecryptor.create(
   Buffer.from(btoa(config.encryptionKey), 'base64'),
 );
 
-const redis = createRedisClient();
+const redis = createRedisClient(config.redisUrl);
 const areaRepo = new RedisAreaRepository(redis);
 const geofence = new RedisGeofenceEvaluator(redis, config.geofenceExitThresholdSeconds);
 const notificationSender = new LogNotificationSender(logger);
@@ -68,6 +70,7 @@ if (config.postgresPassword !== undefined) {
     geofence,
     eventPublisher: buildEventPublisher(repo),
     areaRepo,
+    metrics,
   };
 } else {
   const db = new Database(config.dbPath, { create: true });
@@ -81,6 +84,7 @@ if (config.postgresPassword !== undefined) {
     geofence,
     eventPublisher: buildEventPublisher(repo),
     areaRepo,
+    metrics,
   };
 }
 

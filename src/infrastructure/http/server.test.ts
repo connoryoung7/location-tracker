@@ -6,6 +6,7 @@ import { runMigrations } from '@/infrastructure/persistence/migrate.ts';
 import { SqliteLocationRepository } from '@/repository/location-repository/sqlite.repository';
 import { LibsodiumDecryptor } from '@/infrastructure/crypto/libsodium.decryptor';
 import { mockAreaRepository, mockEventPublisher, mockGeofenceEvaluator } from '@/test/mocks.ts';
+import { PrometheusMetricsCollector } from '@/infrastructure/metrics/prometheus.metrics';
 import type { Deps } from '@/application/handle-payload.ts';
 import type { Server } from 'node:http';
 import type { Geocoder, PayloadDecryptor } from '@/domain/ports';
@@ -38,6 +39,7 @@ beforeAll(async () => {
     geofence: mockGeofenceEvaluator(),
     eventPublisher: mockEventPublisher(),
     areaRepo: mockAreaRepository(),
+    metrics: new PrometheusMetricsCollector(),
   };
 
   const app = createHttpServer(deps);
@@ -83,6 +85,27 @@ describe('GET /_health', () => {
 
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ status: 'ok' });
+  });
+});
+
+describe('GET /_metrics', () => {
+  test('returns 200 with prometheus text format', async () => {
+    const res = await fetch(`${baseUrl}/_metrics`);
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toContain('text/plain');
+    const body = await res.text();
+    expect(body).toContain('http_request_duration_ms');
+    expect(body).toContain('http_requests_total');
+  });
+
+  test('records request metrics after a request', async () => {
+    await fetch(`${baseUrl}/_health`);
+
+    const res = await fetch(`${baseUrl}/_metrics`);
+    const body = await res.text();
+
+    expect(body).toMatch(/http_requests_total\{.*method="GET".*\} \d+/);
   });
 });
 

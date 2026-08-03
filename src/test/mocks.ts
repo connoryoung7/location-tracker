@@ -6,6 +6,7 @@ import type {
   GeofenceEvaluator,
   LocationRepository,
   Logger,
+  MetricsCollector,
   NotificationSender,
 } from '@/domain/ports.ts';
 import type { GeocodingResult } from '@/domain/types.ts';
@@ -74,5 +75,14 @@ export function mockNotificationSender(): {
 } {
   return {
     sendNotification: mock(() => Promise.resolve()),
+  };
+}
+
+export function mockMetricsCollector(): {
+  [K in keyof MetricsCollector]: ReturnType<typeof mock>;
+} {
+  return {
+    recordRequest: mock(() => {}),
+    getMetricsText: mock(() => Promise.resolve('')),
   };
 }
