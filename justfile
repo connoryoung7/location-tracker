@@ -107,6 +107,8 @@ db-studio:
 
 # Start Docker Compose services
 compose-up:
+    # The shared monitoring network is external, so it must already exist.
+    docker network inspect monitoring >/dev/null 2>&1 || docker network create monitoring
     docker compose up -d --build
 
 # Stop Docker Compose services
