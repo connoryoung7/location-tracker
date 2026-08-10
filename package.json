@@ -8,10 +8,13 @@
     "start": "bun src/entrypoints/main.ts http",
     "start:http": "bun src/entrypoints/http.ts",
     "start:mqtt": "bun src/entrypoints/mqtt.ts",
-    "start:worker": "bun src/entrypoints/worker.ts"
+    "start:worker": "bun src/entrypoints/worker.ts",
+    "start:app": "bun src/entrypoints/app.ts",
+    "dev:app": "bun run --watch src/entrypoints/app.ts"
   },
   "devDependencies": {
     "@types/bun": "latest",
+    "@types/escape-html": "^1.0.4",
     "@types/express": "^5.0.6",
     "@types/libsodium-wrappers": "^0.8.2",
     "drizzle-kit": "^0.31.8",
@@ -25,8 +28,11 @@
   },
   "dependencies": {
     "drizzle-orm": "^0.45.1",
+    "escape-html": "^1.0.3",
     "express": "^5.2.1",
+    "htmx.org": "^2.0.10",
     "libsodium-wrappers": "^0.8.2",
+    "maplibre-gl": "^6.2.0",
     "pino": "^10.3.0",
     "prom-client": "^15.1.3",
     "zod": "^4.3.6"

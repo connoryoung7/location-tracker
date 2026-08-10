@@ -6,9 +6,21 @@ default:
 dev:
     bun --hot src/entrypoints/http.ts
 
+# Start the area map UI with hot reloading
+dev-app:
+    bun --hot src/entrypoints/app.ts
+
 # Start production server
 start:
     bun src/entrypoints/main.ts http
+
+# Start the area map UI
+start-app:
+    bun src/entrypoints/main.ts app
+
+# Seed fake greater-Boston areas for local development of the area map UI
+seed-areas:
+    bun scripts/seed-areas.ts
 
 # Run tests
 test *args:
