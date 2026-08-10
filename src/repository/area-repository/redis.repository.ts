@@ -4,12 +4,16 @@ import type { AreaRepository } from '@/domain/ports.ts';
 import {
   areaMaxRadiusKey,
   areaMetaKey,
+  areaMetaKeyPattern,
   geoAreasKey,
   geofenceInsideKey,
   geofencePendingExitKey,
+  userIdFromAreaMetaKey,
 } from '@/infrastructure/redis/keys.ts';
 
 type AreaMeta = { name: string; radius: number };
+
+const SCAN_BATCH_SIZE = 100;
 
 export class RedisAreaRepository implements AreaRepository {
   private redis: RedisClient;
@@ -69,6 +73,30 @@ export class RedisAreaRepository implements AreaRepository {
     });
 
     return areas;
+  }
+
+  async listAllAreas(): Promise<Area[]> {
+    const userIds: string[] = [];
+    let cursor = '0';
+
+    do {
+      const [nextCursor, keys] = (await this.redis.send('SCAN', [
+        cursor,
+        'MATCH',
+        areaMetaKeyPattern(),
+        'COUNT',
+        String(SCAN_BATCH_SIZE),
+      ])) as [string, string[]];
+
+      userIds.push(...keys.map(userIdFromAreaMetaKey));
+      cursor = nextCursor;
+    } while (cursor !== '0');
+
+    // SCAN can return the same key more than once across iterations.
+    const uniqueUserIds = [...new Set(userIds)];
+    const areasByUser = await Promise.all(uniqueUserIds.map((userId) => this.listAreas(userId)));
+
+    return areasByUser.flat();
   }
 
   async getArea(userId: string, areaId: string): Promise<Area | undefined> {

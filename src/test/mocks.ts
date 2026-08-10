@@ -31,6 +31,7 @@ export function mockAreaRepository(): {
     addArea: mock(() => {}),
     removeArea: mock(() => {}),
     listAreas: mock(() => Promise.resolve([])),
+    listAllAreas: mock(() => Promise.resolve([])),
     getArea: mock(() => Promise.resolve(undefined)),
     healthCheck: mock(() => Promise.resolve()),
   };

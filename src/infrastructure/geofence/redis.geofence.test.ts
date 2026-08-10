@@ -238,6 +238,23 @@ describe('RedisAreaRepository + RedisGeofenceEvaluator', () => {
     expect(events).toEqual([]);
   });
 
+  test("11b. listAllAreas returns every user's areas and drops removed ones", async () => {
+    const userA = nextUserId();
+    const userB = nextUserId();
+    await areaRepo.addArea(buildArea({ id: 'a1', userId: userA, name: 'Home', radius: 100 }));
+    await areaRepo.addArea(buildArea({ id: 'a2', userId: userA, name: 'Gym', radius: 150 }));
+    await areaRepo.addArea(buildArea({ id: 'b1', userId: userB, name: 'Work', radius: 200 }));
+
+    const all = await areaRepo.listAllAreas();
+    expect(all).toHaveLength(3);
+    expect(all.map((area) => `${area.userId}/${area.id}`).sort()).toEqual(
+      [`${userA}/a1`, `${userA}/a2`, `${userB}/b1`].sort(),
+    );
+
+    await areaRepo.removeArea(userA, 'a2');
+    expect(await areaRepo.listAllAreas()).toHaveLength(2);
+  });
+
   test('12. add/remove lifecycle: removing an area stops further events and clears state', async () => {
     const userId = nextUserId();
     await areaRepo.addArea(buildArea({ id: 'a1', userId, lat: 42.4, lon: -71.1, radius: 100 }));

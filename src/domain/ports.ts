@@ -27,6 +27,7 @@ export interface AreaRepository {
   addArea(area: Area): void | Promise<void>;
   removeArea(userId: string, areaId: string): void | Promise<void>;
   listAreas(userId: string): Promise<Area[]>;
+  listAllAreas(): Promise<Area[]>;
   getArea(userId: string, areaId: string): Promise<Area | undefined>;
   healthCheck(): Promise<void>;
 }
