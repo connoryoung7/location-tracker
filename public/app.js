@@ -125,12 +125,25 @@ function readSwappedView() {
   }
 }
 
+/**
+ * The server renders every legend row as checked, so a poll would otherwise
+ * show a hidden user as visible while the map still filtered them out. Which
+ * users are hidden is client-side state, so it has to be reapplied after each
+ * swap replaces the inputs.
+ */
+function restoreLegendState() {
+  for (const input of document.querySelectorAll('#areas input[data-user-id]')) {
+    input.checked = !hiddenUserIds.has(input.dataset.userId);
+  }
+}
+
 document.body.addEventListener('htmx:afterSwap', (event) => {
   if (event.target.id !== 'areas') {
     return;
   }
 
   readSwappedView();
+  restoreLegendState();
 });
 
 document.body.addEventListener('change', (event) => {
