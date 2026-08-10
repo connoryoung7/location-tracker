@@ -17,6 +17,11 @@ const ConfigSchema = z.object({
     .min(1024, 'PORT must be >= 1024 (non-privileged)')
     .max(65535)
     .default(3001),
+  APP_PORT: z.coerce
+    .number()
+    .min(1024, 'APP_PORT must be >= 1024 (non-privileged)')
+    .max(65535)
+    .default(3002),
   DB_PATH: z.string().default('location-tracker.db'),
   MQTT_BROKER_URL: z.string().default('mqtt://localhost:1883'),
   POSTGRES_HOST: z.string().default('localhost'),
@@ -38,6 +43,7 @@ const ConfigSchema = z.object({
 export type Config = {
   nodeEnv: 'production' | 'development';
   port: number;
+  appPort: number;
   dbPath: string;
   mqttBrokerUrl: string;
   postgresHost: string;
@@ -54,6 +60,7 @@ export function loadConfig(): Config {
   const {
     NODE_ENV,
     PORT,
+    APP_PORT,
     DB_PATH,
     MQTT_BROKER_URL,
     POSTGRES_HOST,
@@ -68,6 +75,7 @@ export function loadConfig(): Config {
   const env = ConfigSchema.parse({
     NODE_ENV,
     PORT,
+    APP_PORT,
     DB_PATH,
     MQTT_BROKER_URL,
     POSTGRES_HOST,
@@ -82,6 +90,7 @@ export function loadConfig(): Config {
   return {
     nodeEnv: env.NODE_ENV,
     port: env.PORT,
+    appPort: env.APP_PORT,
     dbPath: env.DB_PATH,
     mqttBrokerUrl: env.MQTT_BROKER_URL,
     postgresHost: env.POSTGRES_HOST,

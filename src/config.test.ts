@@ -7,6 +7,7 @@ describe('loadConfig', () => {
   const envKeys = [
     'NODE_ENV',
     'PORT',
+    'APP_PORT',
     'DB_PATH',
     'MQTT_BROKER_URL',
     'POSTGRES_HOST',
@@ -43,6 +44,7 @@ describe('loadConfig', () => {
 
     expect(config.nodeEnv).toBe('development');
     expect(config.port).toBe(3001);
+    expect(config.appPort).toBe(3002);
     expect(config.dbPath).toBe('location-tracker.db');
     expect(config.mqttBrokerUrl).toBe('mqtt://localhost:1883');
     expect(config.postgresHost).toBe('localhost');
@@ -58,6 +60,7 @@ describe('loadConfig', () => {
   test('returns custom values from env vars', () => {
     process.env.NODE_ENV = 'production';
     process.env.PORT = '8080';
+    process.env.APP_PORT = '8081';
     process.env.DB_PATH = '/data/app.db';
     process.env.MQTT_BROKER_URL = 'mqtt://broker.example.com:1883';
     process.env.POSTGRES_HOST = 'db.example.com';
@@ -73,6 +76,7 @@ describe('loadConfig', () => {
 
     expect(config.nodeEnv).toBe('production');
     expect(config.port).toBe(8080);
+    expect(config.appPort).toBe(8081);
     expect(config.dbPath).toBe('/data/app.db');
     expect(config.mqttBrokerUrl).toBe('mqtt://broker.example.com:1883');
     expect(config.postgresHost).toBe('db.example.com');
