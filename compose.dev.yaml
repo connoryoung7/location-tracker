@@ -56,6 +56,24 @@ services:
       redis:
         condition: service_healthy
 
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    command: bun run dev:app
+    ports:
+      - "3002:3002"
+    volumes:
+      - .:/home/bun/app
+      - /home/bun/app/node_modules
+    environment:
+      APP_PORT: "3002"
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      redis:
+        condition: service_healthy
+
   prometheus:
     image: prom/prometheus:v3.5.0
     ports:

@@ -17,9 +17,11 @@ COPY --from=deps --chown=1000:1000 /app/node_modules ./node_modules
 COPY --chown=1000:1000 package.json bun.lock tsconfig.json drizzle.config.ts ./
 COPY --chown=1000:1000 src ./src
 COPY --chown=1000:1000 drizzle ./drizzle
+COPY --chown=1000:1000 public ./public
 
 ENV NODE_ENV=production
-EXPOSE 3001
+# 3001 serves the OwnTracks ingestion API; 3002 serves the area map UI.
+EXPOSE 3001 3002
 
 USER 1000:1000
 CMD ["src/entrypoints/main.ts", "http"]
