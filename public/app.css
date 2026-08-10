@@ -82,6 +82,15 @@ body {
   font-size: 0.875rem;
 }
 
+.legend-error {
+  color: #b91c1c;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 4px;
+  padding: 0.5rem 0.625rem;
+  font-size: 0.875rem;
+}
+
 @media (max-width: 640px) {
   body {
     flex-direction: column;

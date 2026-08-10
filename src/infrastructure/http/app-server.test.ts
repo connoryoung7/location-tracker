@@ -89,6 +89,19 @@ describe('GET /fragments/areas', () => {
     expect(await res.text()).toContain('No areas defined yet.');
   });
 
+  test('degrades to a visible message when the area store is unreachable', async () => {
+    areaRepo.listAllAreas.mockRejectedValueOnce(new Error('Connection has failed'));
+
+    const res = await fetch(`${baseUrl}/fragments/areas`);
+
+    expect(res.status).toBe(503);
+
+    const html = await res.text();
+    expect(html).toContain('Could not reach the area store');
+    // No data block, so the map keeps its last render instead of blanking out.
+    expect(html).not.toContain('areas-data');
+  });
+
   test('escapes area names and user IDs so they cannot inject markup', async () => {
     areaRepo.listAllAreas.mockResolvedValueOnce([
       buildArea({

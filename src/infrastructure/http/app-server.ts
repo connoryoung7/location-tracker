@@ -58,12 +58,30 @@ function renderAreasFragment(view: AreaMapView): string {
   `;
 }
 
+/**
+ * Shown in place of the legend when the areas cannot be read. Deliberately
+ * carries no `areas-data` block, so the map keeps whatever it last rendered
+ * rather than blanking out.
+ */
+function renderAreasError(): string {
+  return `<p class="legend-error">Could not reach the area store. Retrying…</p>`;
+}
+
 function renderPage(): string {
   return `<!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!--
+      htmx does not swap 4xx/5xx responses by default, which would hide the
+      areas-unavailable message. Opt 503 in specifically; the rest of the
+      defaults are repeated verbatim because this replaces the whole array.
+    -->
+    <meta
+      name="htmx-config"
+      content='{"responseHandling":[{"code":"204","swap":false},{"code":"503","swap":true},{"code":"[23]..","swap":true},{"code":"[45]..","swap":false,"error":true}]}'
+    />
     <title>Location Tracker — Areas</title>
     <link rel="stylesheet" href="/vendor/maplibre/maplibre-gl.css" />
     <link rel="stylesheet" href="/static/app.css" />
@@ -124,8 +142,16 @@ export function createAppServer(deps: AppDeps) {
   });
 
   app.get('/fragments/areas', async (_req, res) => {
-    const areas = await deps.areaRepo.listAllAreas();
-    res.type('html').send(renderAreasFragment(buildAreaMapView(areas)));
+    try {
+      const areas = await deps.areaRepo.listAllAreas();
+      res.type('html').send(renderAreasFragment(buildAreaMapView(areas)));
+    } catch (error) {
+      // The page polls this endpoint, so a Redis outage would otherwise leave a
+      // blank sidebar with the reason buried in the server log. Degrade to a
+      // visible message and let the next poll recover on its own.
+      deps.logger.error('Failed to load areas', error);
+      res.status(503).type('html').send(renderAreasError());
+    }
   });
 
   return app;
