@@ -1,5 +1,5 @@
 import { test, expect, describe } from 'bun:test';
-import { buildAreaMapView } from '@/application/build-area-map-view.ts';
+import { buildAreaMapView, type AreaMapView } from '@/application/build-area-map-view.ts';
 import { buildArea } from '@/test/factories.ts';
 
 const EARTH_RADIUS_METERS = 6_371_008.8;
@@ -53,18 +53,51 @@ describe('buildAreaMapView', () => {
     expect(spanAt(60)).toBeGreaterThan(spanAt(0) * 1.5);
   });
 
-  test('each user gets a distinct color that does not depend on area ordering', () => {
+  const colorFor = (view: AreaMapView, userId: string) =>
+    view.legend.find((row) => row.userId === userId)!.color;
+
+  // Colors are hashed per user ID, so distinctness is likely but not guaranteed
+  // -- two IDs can collide. The legend labels every swatch for that reason.
+  test('colors do not depend on the order areas arrive in', () => {
     const areas = [buildArea({ id: 'a1', userId: 'AB' }), buildArea({ id: 'b1', userId: 'CD' })];
 
     const forward = buildAreaMapView(areas);
     const reversed = buildAreaMapView([...areas].reverse());
 
-    const colorFor = (view: typeof forward, userId: string) =>
-      view.legend.find((row) => row.userId === userId)!.color;
-
     expect(colorFor(forward, 'AB')).not.toBe(colorFor(forward, 'CD'));
     expect(colorFor(reversed, 'AB')).toBe(colorFor(forward, 'AB'));
     expect(colorFor(reversed, 'CD')).toBe(colorFor(forward, 'CD'));
+  });
+
+  test('adding a user that sorts first does not recolor the existing users', () => {
+    const existing = [buildArea({ id: 'a1', userId: 'AB' }), buildArea({ id: 'b1', userId: 'CD' })];
+
+    const before = buildAreaMapView(existing);
+    // 'AA' sorts ahead of both, which under position-based assignment would
+    // shift every later user's color on the next poll.
+    const after = buildAreaMapView([...existing, buildArea({ id: 'z1', userId: 'AA' })]);
+
+    expect(colorFor(after, 'AB')).toBe(colorFor(before, 'AB'));
+    expect(colorFor(after, 'CD')).toBe(colorFor(before, 'CD'));
+  });
+
+  test('a user keeps its color when other users disappear entirely', () => {
+    const withPeers = buildAreaMapView([
+      buildArea({ id: 'a1', userId: 'AB' }),
+      buildArea({ id: 'b1', userId: 'CD' }),
+      buildArea({ id: 'c1', userId: 'EF' }),
+    ]);
+    const alone = buildAreaMapView([buildArea({ id: 'b1', userId: 'CD' })]);
+
+    expect(colorFor(alone, 'CD')).toBe(colorFor(withPeers, 'CD'));
+  });
+
+  test('colors are valid CSS/MapLibre hsl values', () => {
+    const view = buildAreaMapView([buildArea({ userId: 'AB' })]);
+
+    expect(colorFor(view, 'AB')).toMatch(
+      /^hsl\((\d|[1-9]\d|[12]\d\d|3[0-5]\d), 65%, (36|46|56)%\)$/,
+    );
   });
 
   test('legend counts areas per user and features carry their display metadata', () => {

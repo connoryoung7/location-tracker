@@ -6,20 +6,50 @@ const CIRCLE_VERTICES = 64;
 /** Mean Earth radius in meters, matching the sphere Redis GEO commands assume. */
 const EARTH_RADIUS_METERS = 6_371_008.8;
 
+/** Saturation held fixed so every generated color stays legible on the basemap. */
+const USER_COLOR_SATURATION = 65;
+
 /**
- * Fill colors assigned to users in sorted order. Chosen to stay distinguishable
- * against the OpenStreetMap basemap and to each other.
+ * Hue alone leaves too much to chance: with a handful of users, two hashes
+ * landing within a few degrees of each other is common enough to see in
+ * practice, and near-identical hues are indistinguishable on the map. Varying
+ * lightness as well gives those pairs a second axis to separate on.
  */
-const USER_COLORS = [
-  '#2563eb',
-  '#dc2626',
-  '#16a34a',
-  '#d97706',
-  '#9333ea',
-  '#0891b2',
-  '#db2777',
-  '#65a30d',
-] as const;
+const USER_COLOR_LIGHTNESSES = [36, 46, 56] as const;
+
+/** FNV-1a offset basis and prime. */
+const FNV_OFFSET_BASIS = 2166136261;
+const FNV_PRIME = 16777619;
+
+function fnv1a(value: string): number {
+  let hash = FNV_OFFSET_BASIS;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, FNV_PRIME);
+  }
+
+  return hash >>> 0;
+}
+
+/**
+ * Derives a user's color from their ID alone.
+ *
+ * Deriving it from the user's position in the sorted list instead would mean a
+ * newly added user that sorts earlier shifts the color of everyone after them
+ * on the next poll. Hashing is stateless, so a user's color survives other
+ * users appearing and disappearing.
+ *
+ * Distinct IDs can still collide; the legend labels every swatch rather than
+ * relying on color alone.
+ */
+function colorForUserId(userId: string): string {
+  const hue = fnv1a(userId) % 360;
+  // Salted separately so lightness does not simply track the hue.
+  const lightness =
+    USER_COLOR_LIGHTNESSES[fnv1a(`${userId}:lightness`) % USER_COLOR_LIGHTNESSES.length]!;
+
+  return `hsl(${hue}, ${USER_COLOR_SATURATION}%, ${lightness}%)`;
+}
 
 /** A `[lon, lat]` pair, in the order GeoJSON requires. */
 type Position = [number, number];
@@ -82,14 +112,13 @@ function circleToRing(lat: number, lon: number, radius: number): Position[] {
  * Turns a flat list of areas into everything the map UI needs to render them:
  * polygon geometry, a stable per-user color, legend rows, and a bounding box.
  *
- * Colors are keyed off the sorted position of each user ID so a given user keeps
- * the same color across refreshes regardless of the order Redis returned them in.
+ * Each user's color is derived from their ID alone, so it survives both
+ * reordering and the arrival of new users between polls. The sort only fixes
+ * legend row order.
  */
 export function buildAreaMapView(areas: Area[]): AreaMapView {
   const userIds = [...new Set(areas.map((area) => area.userId))].sort();
-  const colorByUserId = new Map(
-    userIds.map((userId, index) => [userId, USER_COLORS[index % USER_COLORS.length]!]),
-  );
+  const colorByUserId = new Map(userIds.map((userId) => [userId, colorForUserId(userId)]));
 
   const features = areas.map((area): AreaFeature => {
     const ring = circleToRing(area.lat, area.lon, area.radius);
