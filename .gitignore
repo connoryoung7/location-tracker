@@ -148,3 +148,6 @@ data-capture/*
 # Claude files/folders
 .claude/worktrees
 
+worktrees
+.worktrees
+
