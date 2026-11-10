@@ -32,11 +32,11 @@ test-watch:
 
 # Type-check the project
 typecheck:
-    bunx tsc --noEmit
+    bun --bun x tsc --noEmit
 
 # Lint TypeScript sources with oxlint
 lint-ts:
-    bunx oxlint src/
+    bun --bun x oxlint src/
 
 # Lint Dockerfiles with hadolint (run as a pinned Docker container)
 lint-docker:
@@ -46,23 +46,23 @@ lint-docker:
 
 # Lint Markdown files with markdownlint-cli
 lint-markdown:
-    bunx markdownlint --config .markdownlint.jsonc --ignore-path .markdownlintignore '**/*.md'
+    bun --bun x markdownlint --config .markdownlint.jsonc --ignore-path .markdownlintignore '**/*.md'
 
 # Lint the project (TypeScript + Dockerfiles + Markdown)
 lint: lint-ts lint-docker lint-markdown
 
 # Lint and auto-fix the project
 lint-fix:
-    bunx oxlint --fix src/
-    bunx markdownlint --fix --config .markdownlint.jsonc --ignore-path .markdownlintignore '**/*.md'
+    bun --bun x oxlint --fix src/
+    bun --bun x markdownlint --fix --config .markdownlint.jsonc --ignore-path .markdownlintignore '**/*.md'
 
 # Format the project
 fmt:
-    bunx oxfmt --write src/
+    bun --bun x oxfmt --write src/
 
 # Check formatting without writing
 fmt-check:
-    bunx oxfmt --check src/
+    bun --bun x oxfmt --check src/
 
 # Run Semgrep in Docker against Bun source and Dockerfiles
 semgrep:
@@ -107,7 +107,7 @@ redis-test-stop:
 
 # Generate a new Drizzle migration from schema changes
 db-generate:
-    bunx drizzle-kit generate
+    bun --bun x drizzle-kit generate
 
 # Run pending database migrations
 db-migrate:
@@ -115,7 +115,7 @@ db-migrate:
 
 # Open Drizzle Studio for database inspection
 db-studio:
-    bunx drizzle-kit studio
+    bun --bun x drizzle-kit studio
 
 # Start Docker Compose services
 compose-up:
