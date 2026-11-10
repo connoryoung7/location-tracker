@@ -5,8 +5,12 @@
  * than duplicating. Run with `just seed-areas`.
  */
 import { loadConfig } from '@/config.ts';
-import { createRedisClient } from '@/infrastructure/redis/client.ts';
-import { RedisAreaRepository } from '@/repository/area-repository/redis.repository.ts';
+import { ConsoleLogger } from '@/infrastructure/logging/console.logger.ts';
+import { createRedisClient, waitForRedis } from '@/infrastructure/redis/client.ts';
+import {
+  createAreaRepository,
+  openAreaStore,
+} from '@/repository/area-repository/create-area-repository.ts';
 import type { Area } from '@/domain/types.ts';
 
 const seedAreas: Area[] = [
@@ -225,12 +229,16 @@ const seedAreas: Area[] = [
 
 const config = loadConfig();
 const redis = createRedisClient(config.redisUrl);
-const areaRepo = new RedisAreaRepository(redis);
+const store = openAreaStore(config);
+const areaRepo = createAreaRepository(store, redis, new ConsoleLogger());
 
 // The client fails commands fast rather than queueing them while disconnected,
 // which suits the long-running servers but means a short script has to wait for
 // the connection before issuing its first command.
-await redis.connect();
+if (!(await waitForRedis(redis))) {
+  console.error(`Could not reach Redis at ${config.redisUrl}. Is it running?`);
+  process.exit(1);
+}
 
 for (const area of seedAreas) {
   await areaRepo.addArea(area);
@@ -242,8 +250,9 @@ for (const area of stored) {
   byUser.set(area.userId, (byUser.get(area.userId) ?? 0) + 1);
 }
 
-console.log(`Seeded ${seedAreas.length} areas into ${config.redisUrl}`);
-console.log(`Redis now holds ${stored.length} areas across ${byUser.size} users:`);
+const storeLabel = store.kind === 'postgres' ? config.postgresDb : config.dbPath;
+console.log(`Seeded ${seedAreas.length} areas into ${store.kind} (${storeLabel})`);
+console.log(`Store now holds ${stored.length} areas across ${byUser.size} users:`);
 for (const [userId, count] of [...byUser].sort()) {
   console.log(`  ${userId}: ${count}`);
 }

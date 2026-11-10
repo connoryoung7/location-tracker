@@ -32,6 +32,25 @@ export interface AreaRepository {
   healthCheck(): Promise<void>;
 }
 
+/**
+ * The derived Redis view of the areas the geofence evaluator queries. Areas are
+ * owned by an `AreaRepository`; this is a rebuildable index, never a record of
+ * truth, so every method must be safe to replay.
+ */
+export interface AreaProjection {
+  /** Upsert one area into the index. */
+  applyArea(area: Area): Promise<void>;
+  /** Drop one area and any geofence state tracking it. */
+  removeArea(userId: string, areaId: string): Promise<void>;
+  /** Replace a single user's areas, used for targeted repair. */
+  replaceUserAreas(userId: string, areas: Area[]): Promise<void>;
+  /** Replace the whole index, used for the boot rebuild. */
+  replaceAll(areas: Area[]): Promise<void>;
+  /** Areas currently in the index. Only the cutover import reads these. */
+  listAllAreas(): Promise<Area[]>;
+  healthCheck(): Promise<void>;
+}
+
 export interface GeofenceEvaluator {
   evaluate(userId: string, lon: number, lat: number, tst: number): Promise<GeofenceEvent[]>;
 }

@@ -151,6 +151,19 @@ export class PostgresLocationRepository implements LocationRepository {
       )
     `;
     await this.conn`
+      CREATE TABLE IF NOT EXISTS areas (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        lat DOUBLE PRECISION NOT NULL,
+        lon DOUBLE PRECISION NOT NULL,
+        radius DOUBLE PRECISION NOT NULL,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `;
+    await this.conn`CREATE INDEX IF NOT EXISTS areas_user_id_idx ON areas (user_id)`;
+    await this.conn`
       CREATE TABLE IF NOT EXISTS area_events (
         id SERIAL PRIMARY KEY,
         type TEXT NOT NULL,

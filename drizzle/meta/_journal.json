@@ -29,6 +29,13 @@
       "when": 1783471413121,
       "tag": "0003_kind_hedge_knight",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1794284467532,
+      "tag": "0004_married_rogue",
+      "breakpoints": true
     }
   ]
 }

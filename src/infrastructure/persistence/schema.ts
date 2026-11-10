@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { integer, real, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import { index, integer, real, sqliteTable, text } from 'drizzle-orm/sqlite-core';
 
 export const locations = sqliteTable('locations', {
   id: integer('id').primaryKey({ autoIncrement: true }),
@@ -59,6 +59,26 @@ export const transitions = sqliteTable('transitions', {
   rid: text('rid'),
   created_at: text('created_at').default(sql`(datetime('now'))`),
 });
+
+/**
+ * User-defined circular geofences. The record of truth: the Redis GEO index the
+ * geofence evaluator queries is a projection rebuilt from this table.
+ */
+export const areas = sqliteTable(
+  'areas',
+  {
+    id: text('id').primaryKey(),
+    user_id: text('user_id').notNull(),
+    name: text('name').notNull(),
+    lat: real('lat').notNull(),
+    lon: real('lon').notNull(),
+    /** Radius in meters. */
+    radius: real('radius').notNull(),
+    created_at: text('created_at').default(sql`(datetime('now'))`),
+    updated_at: text('updated_at').default(sql`(datetime('now'))`),
+  },
+  (table) => [index('areas_user_id_idx').on(table.user_id)],
+);
 
 export const area_events = sqliteTable('area_events', {
   id: integer('id').primaryKey({ autoIncrement: true }),

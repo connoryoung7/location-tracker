@@ -163,6 +163,7 @@ export const OwnTracksPayloadSchema = z.discriminatedUnion('_type', [
   RequestPayloadSchema,
 ]);
 
+/** An area whose `id` the caller chose, so a seed run can upsert by it. */
 export const AreaSchema = z.object({
   id: z.string().min(1),
   userId: z.string().min(1),
@@ -170,4 +171,17 @@ export const AreaSchema = z.object({
   lat: z.number().min(-90).max(90),
   lon: z.number().min(-180).max(180),
   radius: z.number().positive(),
+});
+
+/**
+ * A new area drawn in the UI. The server assigns the `id`, so clients cannot
+ * overwrite an existing area by guessing one. Form posts arrive as strings,
+ * hence the coercion on the numbers.
+ */
+export const CreateAreaSchema = z.object({
+  userId: z.string().min(1).max(64),
+  name: z.string().min(1).max(200),
+  lat: z.coerce.number().min(-90).max(90),
+  lon: z.coerce.number().min(-180).max(180),
+  radius: z.coerce.number().positive().max(100_000),
 });
