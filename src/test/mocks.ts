@@ -12,7 +12,7 @@ import type {
 import type { GeocodingResult } from '@/domain/types.ts';
 
 export function mockLocationRepository(): {
-  [K in keyof LocationRepository]: ReturnType<typeof mock>;
+  [K in keyof Omit<LocationRepository, 'replayState'>]: ReturnType<typeof mock>;
 } {
   return {
     saveLocation: mock(() => {}),

@@ -297,3 +297,9 @@ export type Area = {
   /** Radius in meters. */
   radius: number;
 };
+
+/** State handed from a committed replay to the next live location. */
+export type GeofenceReplayState = {
+  inside: string[];
+  pending: [string, number][];
+};

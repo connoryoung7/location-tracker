@@ -16,6 +16,14 @@ export function userIdFromAreaMetaKey(key: string): string {
   return key.slice(areaMetaKey('').length);
 }
 
+/**
+ * Users whose projected areas failed to write and may not match the source of
+ * truth. Repaired opportunistically; see `SyncingAreaRepository`.
+ */
+export function areaProjectionDirtyKey(): string {
+  return 'area:projection-dirty';
+}
+
 export function areaMaxRadiusKey(userId: string): string {
   return `area:maxradius:${userId}`;
 }

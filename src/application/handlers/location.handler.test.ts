@@ -84,3 +84,37 @@ describe('handleLocation', () => {
     expect(geofence.evaluate).toHaveBeenCalledWith('AB', 2, 1, 3);
   });
 });
+
+test('a failed geofence lock or restoration never discards a live location', async () => {
+  const repo = mockLocationRepository();
+  const deps = {
+    repo,
+    logger: mockLogger(),
+    reverseGeocoder: mockGeocoder(),
+    geofence: mockGeofenceEvaluator(),
+    eventPublisher: mockEventPublisher(),
+  };
+  await handleLocation(buildLocationPayload(), {
+    ...deps,
+    userLock: {
+      withUserLock: async () => {
+        throw new Error('busy');
+      },
+    },
+  });
+  expect(repo.saveLocation).toHaveBeenCalledTimes(1);
+  await handleLocation(buildLocationPayload(), {
+    ...deps,
+    replayState: {
+      readReplayState: async () => ({ inside: [], pending: [] }),
+      clearReplayState: async () => {},
+    },
+    geofence: {
+      ...deps.geofence,
+      restoreState: async () => {
+        throw new Error('Redis down');
+      },
+    },
+  });
+  expect(repo.saveLocation).toHaveBeenCalledTimes(2);
+});

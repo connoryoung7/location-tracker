@@ -12,8 +12,8 @@ import { NominatimGeocoder } from '@/infrastructure/geocoder/nominatim.geocoder'
 import { PrometheusMetricsCollector } from '@/infrastructure/metrics/prometheus.metrics';
 import { CoordinatePrecision } from '@/domain/types';
 import type { Deps } from '@/application/handle-payload.ts';
-import { createRedisClient } from '@/infrastructure/redis/client.ts';
-import { RedisAreaRepository } from '@/repository/area-repository/redis.repository.ts';
+import { createRedisClient, waitForRedis } from '@/infrastructure/redis/client.ts';
+import { createAreaRepository } from '@/repository/area-repository/create-area-repository.ts';
 import { RedisGeofenceEvaluator } from '@/infrastructure/geofence/redis.geofence-evaluator.ts';
 import { RedisEventPublisher } from '@/infrastructure/events/redis.event-publisher.ts';
 import { DbEventPublisher } from '@/infrastructure/events/db.event-publisher.ts';
@@ -21,6 +21,7 @@ import { NotificationEventPublisher } from '@/infrastructure/events/notification
 import { CompositeEventPublisher } from '@/infrastructure/events/composite.event-publisher.ts';
 import { LogNotificationSender } from '@/infrastructure/notifications/log.notification-sender.ts';
 import type { LocationRepository } from '@/domain/ports.ts';
+import type { SyncingAreaRepository } from '@/repository/area-repository/syncing.repository.ts';
 
 const config = loadConfig();
 const logger = new PinoLogger();
@@ -32,7 +33,6 @@ const decryptor = await LibsodiumDecryptor.create(
 );
 
 const redis = createRedisClient(config.redisUrl);
-const areaRepo = new RedisAreaRepository(redis);
 const geofence = new RedisGeofenceEvaluator(redis, config.geofenceExitThresholdSeconds);
 const notificationSender = new LogNotificationSender(logger);
 
@@ -48,6 +48,7 @@ function buildEventPublisher(repo: LocationRepository) {
 }
 
 let deps: Deps;
+let areaRepo: SyncingAreaRepository;
 
 if (config.postgresPassword !== undefined) {
   logger.info(
@@ -62,8 +63,12 @@ if (config.postgresPassword !== undefined) {
   });
   const repo = new PostgresLocationRepository(sql);
   await repo.migrate();
+  // Reuses the connection above rather than opening a second pool.
+  areaRepo = createAreaRepository({ kind: 'postgres', sql }, redis, logger);
   deps = {
     repo,
+    userLock: repo,
+    replayState: repo.replayState,
     logger,
     decryptor,
     reverseGeocoder,
@@ -76,8 +81,11 @@ if (config.postgresPassword !== undefined) {
   const db = new Database(config.dbPath, { create: true });
   runMigrations(db);
   const repo = new SqliteLocationRepository(db);
+  areaRepo = createAreaRepository({ kind: 'sqlite', db }, redis, logger);
   deps = {
     repo,
+    userLock: repo,
+    replayState: repo.replayState,
     logger,
     decryptor,
     reverseGeocoder,
@@ -86,6 +94,18 @@ if (config.postgresPassword !== undefined) {
     areaRepo,
     metrics,
   };
+}
+
+// Keeps the geofence index in step with the area store. Not fatal -- ingestion
+// must keep accepting locations even when the projection cannot be rebuilt.
+if (await waitForRedis(redis)) {
+  await areaRepo.initialize().catch((error: unknown) => {
+    logger.error(`Failed to initialize the area projection: ${error}`);
+    areaRepo.initializeInBackground();
+  });
+} else {
+  logger.warn('Redis not reachable at startup; geofencing is degraded until it returns');
+  areaRepo.initializeInBackground();
 }
 
 const app = createHttpServer(deps);

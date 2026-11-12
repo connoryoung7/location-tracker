@@ -1,6 +1,8 @@
-import type { SQL } from 'bun';
+import type { SQL, TransactionSQL } from 'bun';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import type {
   Address,
+  GeofenceReplayState,
   LocationPayload,
   TransitionPayload,
   WaypointPayload,
@@ -9,10 +11,36 @@ import type { GeofenceEvent } from '@/domain/events.ts';
 import type { LocationRepository } from '@/domain/ports.ts';
 
 export class PostgresLocationRepository implements LocationRepository {
-  private conn: SQL;
+  private pool: SQL;
+  private transaction = new AsyncLocalStorage<TransactionSQL>();
+
+  private get conn(): SQL {
+    return this.transaction.getStore() ?? this.pool;
+  }
+
+  readonly replayState = {
+    readReplayState: async (userId: string): Promise<GeofenceReplayState | undefined> => {
+      const [row] = await this
+        .conn`SELECT state FROM geofence_replay_state WHERE user_id = ${userId}`;
+      return row?.state;
+    },
+    clearReplayState: async (userId: string): Promise<void> => {
+      await this.conn`DELETE FROM geofence_replay_state WHERE user_id = ${userId}`;
+    },
+  };
+
+  async withUserLock<T>(userId: string, work: () => Promise<T>): Promise<T> {
+    return this.pool.begin(async (tx) => {
+      // The lock and all repository operations use this transaction's connection.
+      // Postgres releases it on commit, rollback, or connection loss.
+      await tx`SET LOCAL lock_timeout = '250ms'`;
+      await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`geofence:${userId}`}, 0))`;
+      return this.transaction.run(tx, work);
+    });
+  }
 
   constructor(conn: SQL) {
-    this.conn = conn;
+    this.pool = conn;
   }
 
   async saveLocation(payload: LocationPayload): Promise<void> {
@@ -87,6 +115,10 @@ export class PostgresLocationRepository implements LocationRepository {
   }
 
   async migrate(): Promise<void> {
+    await this.conn`CREATE TABLE IF NOT EXISTS geofence_replay_state (
+      user_id TEXT PRIMARY KEY,
+      state JSONB NOT NULL
+    )`;
     await this.conn`
       CREATE TABLE IF NOT EXISTS locations (
         id SERIAL PRIMARY KEY,
@@ -151,6 +183,19 @@ export class PostgresLocationRepository implements LocationRepository {
       )
     `;
     await this.conn`
+      CREATE TABLE IF NOT EXISTS areas (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        lat DOUBLE PRECISION NOT NULL,
+        lon DOUBLE PRECISION NOT NULL,
+        radius DOUBLE PRECISION NOT NULL,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `;
+    await this.conn`CREATE INDEX IF NOT EXISTS areas_user_id_idx ON areas (user_id)`;
+    await this.conn`
       CREATE TABLE IF NOT EXISTS area_events (
         id SERIAL PRIMARY KEY,
         type TEXT NOT NULL,
@@ -178,6 +223,59 @@ export class PostgresLocationRepository implements LocationRepository {
         ${event.tst}
       )
     `;
+  }
+
+  async *listLocations(
+    userId: string,
+    range: { from?: number; to?: number } = {},
+  ): AsyncIterable<LocationPayload> {
+    let timestamp = range.from ?? 0;
+    let id = 0;
+    while (true) {
+      const rows = await this.conn`SELECT id, lat, lon, tst, tid FROM locations
+        WHERE tid = ${userId} AND tst >= ${range.from ?? 0} AND tst <= ${range.to ?? 2147483647}
+        AND (tst > ${timestamp} OR (tst = ${timestamp} AND id > ${id})) ORDER BY tst, id LIMIT 1000`;
+      if (!rows.length) return;
+      for (const row of rows) {
+        timestamp = row.tst;
+        id = row.id;
+        yield { _type: 'location', lat: row.lat, lon: row.lon, tst: row.tst, tid: row.tid };
+      }
+    }
+  }
+
+  async replaceAreaEvents(
+    userId: string,
+    events: GeofenceEvent[],
+    state?: GeofenceReplayState,
+  ): Promise<number> {
+    const replace = async (tx: SQL) => {
+      const [before] =
+        await tx`SELECT COUNT(*) AS count FROM area_events WHERE user_id = ${userId}`;
+      await tx`DELETE FROM area_events WHERE user_id = ${userId}`;
+      for (const event of events) {
+        if (event.userId !== userId) throw new Error('Event user mismatch');
+      }
+      for (let offset = 0; offset < events.length; offset += 1000) {
+        const rows = events.slice(offset, offset + 1000).map((event) => ({
+          type: event._type,
+          user_id: userId,
+          area_id: event.areaId,
+          area_name: event.areaName ?? null,
+          lat: event.lat,
+          lon: event.lon,
+          tst: event.tst,
+        }));
+        await tx`INSERT INTO area_events ${tx(rows)}`;
+      }
+      if (state) {
+        await tx`INSERT INTO geofence_replay_state (user_id, state) VALUES (${userId}, ${state}::jsonb)
+          ON CONFLICT (user_id) DO UPDATE SET state = EXCLUDED.state`;
+      }
+      return Number(before.count);
+    };
+    const transaction = this.transaction.getStore();
+    return transaction ? transaction.savepoint(replace) : this.pool.begin(replace);
   }
 
   async healthCheck(): Promise<void> {

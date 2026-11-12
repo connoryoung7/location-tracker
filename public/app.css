@@ -82,6 +82,89 @@ body {
   font-size: 0.875rem;
 }
 
+#draw-panel {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}
+
+#draw-panel button {
+  font: inherit;
+  padding: 0.375rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: #fff;
+  cursor: pointer;
+}
+
+#draw-panel button[type='submit'] {
+  background: #2563eb;
+  border-color: #2563eb;
+  color: #fff;
+}
+
+#draw-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+#draw-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.875rem;
+}
+
+#draw-form input[type='text'] {
+  font: inherit;
+  padding: 0.375rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.draw-hint,
+.draw-readout {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--muted);
+}
+
+.draw-readout {
+  font-variant-numeric: tabular-nums;
+}
+
+.draw-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.form-error:empty {
+  display: none;
+}
+
+.form-error {
+  margin: 0.5rem 0 0;
+  font-size: 0.8125rem;
+  color: #b91c1c;
+}
+
+.popup-label {
+  margin: 0 0 0.5rem;
+  font-size: 0.875rem;
+}
+
+.popup-delete {
+  font: inherit;
+  font-size: 0.8125rem;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid #fecaca;
+  border-radius: 4px;
+  background: #fef2f2;
+  color: #b91c1c;
+  cursor: pointer;
+}
+
 .legend-error {
   color: #b91c1c;
   background: #fef2f2;

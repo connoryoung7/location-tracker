@@ -1,7 +1,7 @@
 import { test, expect, describe, beforeAll, afterAll, beforeEach } from 'bun:test';
 import { RedisClient } from 'bun';
 import { Database } from 'bun:sqlite';
-import { RedisAreaRepository } from '@/repository/area-repository/redis.repository.ts';
+import { RedisAreaProjection } from '@/repository/area-repository/redis.projection.ts';
 import { RedisGeofenceEvaluator } from '@/infrastructure/geofence/redis.geofence-evaluator.ts';
 import { RedisEventPublisher } from '@/infrastructure/events/redis.event-publisher.ts';
 import { DbEventPublisher } from '@/infrastructure/events/db.event-publisher.ts';
@@ -20,15 +20,15 @@ import type { GeofenceEvent } from '@/domain/events.ts';
 const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6379/1';
 const THRESHOLD_SECONDS = 60;
 
-describe('RedisAreaRepository + RedisGeofenceEvaluator', () => {
+describe('RedisAreaProjection + RedisGeofenceEvaluator', () => {
   let redis: RedisClient;
-  let areaRepo: RedisAreaRepository;
+  let areaRepo: RedisAreaProjection;
   let geofence: RedisGeofenceEvaluator;
   let userCounter = 0;
 
   beforeAll(() => {
     redis = new RedisClient(REDIS_URL);
-    areaRepo = new RedisAreaRepository(redis);
+    areaRepo = new RedisAreaProjection(redis);
     geofence = new RedisGeofenceEvaluator(redis, THRESHOLD_SECONDS);
   });
 
@@ -47,7 +47,7 @@ describe('RedisAreaRepository + RedisGeofenceEvaluator', () => {
 
   test('1. enter: outside then inside yields exactly one area.entered', async () => {
     const userId = nextUserId();
-    await areaRepo.addArea(buildArea({ id: 'a1', userId, lat: 42.4, lon: -71.1, radius: 100 }));
+    await areaRepo.applyArea(buildArea({ id: 'a1', userId, lat: 42.4, lon: -71.1, radius: 100 }));
 
     const outside = await geofence.evaluate(userId, -71.2, 42.4, 1000);
     expect(outside).toEqual([]);
@@ -59,7 +59,7 @@ describe('RedisAreaRepository + RedisGeofenceEvaluator', () => {
 
   test('2. stay inside: repeated inside locations produce no duplicate enters', async () => {
     const userId = nextUserId();
-    await areaRepo.addArea(buildArea({ id: 'a1', userId, lat: 42.4, lon: -71.1, radius: 100 }));
+    await areaRepo.applyArea(buildArea({ id: 'a1', userId, lat: 42.4, lon: -71.1, radius: 100 }));
 
     const first = await geofence.evaluate(userId, -71.1, 42.4, 1000);
     expect(first).toHaveLength(1);
@@ -70,7 +70,7 @@ describe('RedisAreaRepository + RedisGeofenceEvaluator', () => {
 
   test('3. brief exit within cushion: no exit and no re-enter', async () => {
     const userId = nextUserId();
-    await areaRepo.addArea(buildArea({ id: 'a1', userId, lat: 42.4, lon: -71.1, radius: 100 }));
+    await areaRepo.applyArea(buildArea({ id: 'a1', userId, lat: 42.4, lon: -71.1, radius: 100 }));
 
     const entered = await geofence.evaluate(userId, -71.1, 42.4, 1000);
     expect(entered).toHaveLength(1);
@@ -84,7 +84,7 @@ describe('RedisAreaRepository + RedisGeofenceEvaluator', () => {
 
   test('4. confirmed exit: continuously outside past the cushion yields one area.exited', async () => {
     const userId = nextUserId();
-    await areaRepo.addArea(buildArea({ id: 'a1', userId, lat: 42.4, lon: -71.1, radius: 100 }));
+    await areaRepo.applyArea(buildArea({ id: 'a1', userId, lat: 42.4, lon: -71.1, radius: 100 }));
 
     const entered = await geofence.evaluate(userId, -71.1, 42.4, 1000);
     expect(entered).toHaveLength(1);
@@ -104,7 +104,7 @@ describe('RedisAreaRepository + RedisGeofenceEvaluator', () => {
 
   test('5. cold start: first-ever location already inside fires enter', async () => {
     const userId = nextUserId();
-    await areaRepo.addArea(buildArea({ id: 'a1', userId, lat: 42.4, lon: -71.1, radius: 100 }));
+    await areaRepo.applyArea(buildArea({ id: 'a1', userId, lat: 42.4, lon: -71.1, radius: 100 }));
 
     const events = await geofence.evaluate(userId, -71.1, 42.4, 1000);
     expect(events).toHaveLength(1);
@@ -114,7 +114,7 @@ describe('RedisAreaRepository + RedisGeofenceEvaluator', () => {
   test('6. per-user isolation: identical coordinates only trigger the owning user', async () => {
     const userA = nextUserId();
     const userB = nextUserId();
-    await areaRepo.addArea(
+    await areaRepo.applyArea(
       buildArea({ id: 'a1', userId: userA, lat: 42.4, lon: -71.1, radius: 100 }),
     );
 
@@ -128,10 +128,10 @@ describe('RedisAreaRepository + RedisGeofenceEvaluator', () => {
   test('7. overlapping areas: two enters, then one exit when leaving only one', async () => {
     const userId = nextUserId();
     const center = { lat: 42.5, lon: -71.2 };
-    await areaRepo.addArea(
+    await areaRepo.applyArea(
       buildArea({ id: 'big', userId, lat: center.lat, lon: center.lon, radius: 300 }),
     );
-    await areaRepo.addArea(
+    await areaRepo.applyArea(
       buildArea({ id: 'small', userId, lat: center.lat, lon: center.lon, radius: 100 }),
     );
 
@@ -179,10 +179,10 @@ describe('RedisAreaRepository + RedisGeofenceEvaluator', () => {
     const distance = Number(searchResult.find(([member]) => member === 'center')![1]);
     await redis.del(scratchKey);
 
-    await areaRepo.addArea(
+    await areaRepo.applyArea(
       buildArea({ id: 'inclusive', userId, lat: center.lat, lon: center.lon, radius: distance }),
     );
-    await areaRepo.addArea(
+    await areaRepo.applyArea(
       buildArea({
         id: 'exclusive',
         userId,
@@ -200,7 +200,7 @@ describe('RedisAreaRepository + RedisGeofenceEvaluator', () => {
   test('9. GPS jitter: stationary coordinates produce no spurious churn', async () => {
     const userId = nextUserId();
     const center = stationaryCoordinates[0]!;
-    await areaRepo.addArea(
+    await areaRepo.applyArea(
       buildArea({ id: 'a1', userId, lat: center.lat, lon: center.lon, radius: 50 }),
     );
 
@@ -217,7 +217,7 @@ describe('RedisAreaRepository + RedisGeofenceEvaluator', () => {
   test('10. path crossing: walking through an area yields exactly one enter then one exit', async () => {
     const userId = nextUserId();
     // Centered on walkingCoordinates[7]; points 6-8 fall within 100m, the rest do not.
-    await areaRepo.addArea(
+    await areaRepo.applyArea(
       buildArea({ id: 'a1', userId, lat: 42.356, lon: -71.0588, radius: 100 }),
     );
 
@@ -241,9 +241,9 @@ describe('RedisAreaRepository + RedisGeofenceEvaluator', () => {
   test("11b. listAllAreas returns every user's areas and drops removed ones", async () => {
     const userA = nextUserId();
     const userB = nextUserId();
-    await areaRepo.addArea(buildArea({ id: 'a1', userId: userA, name: 'Home', radius: 100 }));
-    await areaRepo.addArea(buildArea({ id: 'a2', userId: userA, name: 'Gym', radius: 150 }));
-    await areaRepo.addArea(buildArea({ id: 'b1', userId: userB, name: 'Work', radius: 200 }));
+    await areaRepo.applyArea(buildArea({ id: 'a1', userId: userA, name: 'Home', radius: 100 }));
+    await areaRepo.applyArea(buildArea({ id: 'a2', userId: userA, name: 'Gym', radius: 150 }));
+    await areaRepo.applyArea(buildArea({ id: 'b1', userId: userB, name: 'Work', radius: 200 }));
 
     const all = await areaRepo.listAllAreas();
     expect(all).toHaveLength(3);
@@ -257,7 +257,7 @@ describe('RedisAreaRepository + RedisGeofenceEvaluator', () => {
 
   test('12. add/remove lifecycle: removing an area stops further events and clears state', async () => {
     const userId = nextUserId();
-    await areaRepo.addArea(buildArea({ id: 'a1', userId, lat: 42.4, lon: -71.1, radius: 100 }));
+    await areaRepo.applyArea(buildArea({ id: 'a1', userId, lat: 42.4, lon: -71.1, radius: 100 }));
 
     const entered = await geofence.evaluate(userId, -71.1, 42.4, 1000);
     expect(entered).toHaveLength(1);
@@ -277,14 +277,14 @@ describe('RedisAreaRepository + RedisGeofenceEvaluator', () => {
     // ~80m north of center
     const point = { lat: center.lat + (80 / 6372797.560856) * (180 / Math.PI), lon: center.lon };
 
-    await areaRepo.addArea(
+    await areaRepo.applyArea(
       buildArea({ id: 'a1', userId, lat: center.lat, lon: center.lon, radius: 50 }),
     );
     const outsideOfSmallRadius = await geofence.evaluate(userId, point.lon, point.lat, 1000);
     expect(outsideOfSmallRadius).toEqual([]);
 
     await areaRepo.removeArea(userId, 'a1');
-    await areaRepo.addArea(
+    await areaRepo.applyArea(
       buildArea({ id: 'a1', userId, lat: center.lat, lon: center.lon, radius: 150 }),
     );
 
@@ -295,7 +295,7 @@ describe('RedisAreaRepository + RedisGeofenceEvaluator', () => {
 
   test('14. event fan-out: every event reaches Pub/Sub, the DB, and notifications; a failing sink does not block the rest', async () => {
     const userId = nextUserId();
-    await areaRepo.addArea(buildArea({ id: 'a1', userId, lat: 42.4, lon: -71.1, radius: 100 }));
+    await areaRepo.applyArea(buildArea({ id: 'a1', userId, lat: 42.4, lon: -71.1, radius: 100 }));
 
     const db = new Database(':memory:');
     runMigrations(db);

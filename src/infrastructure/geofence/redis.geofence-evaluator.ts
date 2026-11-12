@@ -1,4 +1,5 @@
 import type { RedisClient } from 'bun';
+import type { GeofenceReplayState } from '@/domain/types.ts';
 import type { GeofenceEvaluator } from '@/domain/ports.ts';
 import type { GeofenceEvent } from '@/domain/events.ts';
 import {
@@ -26,6 +27,21 @@ export class RedisGeofenceEvaluator implements GeofenceEvaluator {
   constructor(redis: RedisClient, thresholdSeconds: number) {
     this.redis = redis;
     this.thresholdSeconds = thresholdSeconds;
+  }
+
+  async restoreState(userId: string, state: GeofenceReplayState): Promise<void> {
+    await this.redis.send('EVAL', [
+      `
+      local state = cjson.decode(ARGV[1])
+      redis.call('DEL', KEYS[1], KEYS[2])
+      for _, id in ipairs(state.inside) do redis.call('SADD', KEYS[1], id) end
+      for _, pair in ipairs(state.pending) do redis.call('HSET', KEYS[2], pair[1], pair[2]) end
+    `,
+      '2',
+      geofenceInsideKey(userId),
+      geofencePendingExitKey(userId),
+      JSON.stringify(state),
+    ]);
   }
 
   async evaluate(userId: string, lon: number, lat: number, tst: number): Promise<GeofenceEvent[]> {
