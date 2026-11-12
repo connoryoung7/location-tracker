@@ -18,6 +18,11 @@ export class SyncingAreaRepository implements AreaRepository {
   private projection: AreaProjection;
   private redis: RedisClient;
   private logger: Logger;
+  /**
+   * Users whose dirty marker could not be stored in Redis (it was unreachable).
+   * Kept in-process so repairDrift can still find them once Redis returns.
+   */
+  private localDirtyUserIds = new Set<string>();
 
   constructor(
     source: AreaRepository,
@@ -53,6 +58,23 @@ export class SyncingAreaRepository implements AreaRepository {
     }
 
     await this.rebuildProjection();
+  }
+
+  /**
+   * Retries {@link initialize} in the background until it succeeds. For startups
+   * where Redis was not reachable in time: without this the projection would stay
+   * empty until the process restarted.
+   */
+  initializeInBackground(retryMs: number = 5_000): void {
+    const attempt = async (): Promise<void> => {
+      try {
+        await this.initialize();
+      } catch (error) {
+        this.logger.warn(`Area projection not ready, retrying in ${retryMs}ms: ${error}`);
+        setTimeout(attempt, retryMs).unref();
+      }
+    };
+    setTimeout(attempt, retryMs).unref();
   }
 
   /** Rewrites the whole projection from the source. */
@@ -109,9 +131,10 @@ export class SyncingAreaRepository implements AreaRepository {
     try {
       await this.redis.sadd(areaProjectionDirtyKey(), userId);
     } catch (error) {
-      // Redis is unreachable, so the dirty marker cannot be stored either. The
-      // boot rebuild is the backstop.
-      this.logger.error(`Failed to mark ${userId} dirty; rebuild on next boot`, error);
+      // Redis is unreachable, so the marker cannot be stored there. Remember it
+      // in-process so repairDrift can re-project once Redis is back.
+      this.localDirtyUserIds.add(userId);
+      this.logger.error(`Failed to mark ${userId} dirty in Redis; tracking locally`, error);
     }
   }
 
@@ -121,17 +144,19 @@ export class SyncingAreaRepository implements AreaRepository {
    * to trigger it. A no-op beyond one SMEMBERS when nothing is dirty.
    */
   private async repairDrift(): Promise<void> {
-    let dirtyUserIds: string[];
+    let redisDirtyUserIds: string[];
     try {
-      dirtyUserIds = await this.redis.smembers(areaProjectionDirtyKey());
+      redisDirtyUserIds = await this.redis.smembers(areaProjectionDirtyKey());
     } catch {
       // Redis still down. Reads come from the source, so serve them anyway.
       return;
     }
 
+    const dirtyUserIds = new Set([...redisDirtyUserIds, ...this.localDirtyUserIds]);
     for (const userId of dirtyUserIds) {
       try {
         await this.projection.replaceUserAreas(userId, await this.source.listAreas(userId));
+        this.localDirtyUserIds.delete(userId);
         await this.redis.srem(areaProjectionDirtyKey(), userId);
         this.logger.info(`Repaired projected areas for ${userId}`);
       } catch (error) {

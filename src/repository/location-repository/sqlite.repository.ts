@@ -106,6 +106,32 @@ export class SqliteLocationRepository implements LocationRepository {
     );
   }
 
+  async *listLocations(
+    userId: string,
+    range: { from?: number; to?: number } = {},
+  ): AsyncIterable<LocationPayload> {
+    const rows = this.db.query(
+      `SELECT lat, lon, tst, tid FROM locations WHERE tid = ? AND tst >= ? AND tst <= ? ORDER BY tst, id`,
+    );
+    for (const row of rows.iterate(userId, range.from ?? 0, range.to ?? Number.MAX_SAFE_INTEGER)) {
+      yield { _type: 'location', ...(row as Omit<LocationPayload, '_type'>) };
+    }
+  }
+
+  async replaceAreaEvents(userId: string, events: GeofenceEvent[]): Promise<number> {
+    return this.db.transaction(() => {
+      const before = this.db
+        .query('SELECT COUNT(*) AS count FROM area_events WHERE user_id = ?')
+        .get(userId) as { count: number };
+      this.db.run('DELETE FROM area_events WHERE user_id = ?', [userId]);
+      for (const event of events) {
+        if (event.userId !== userId) throw new Error('Event user mismatch');
+        this.saveAreaEvent(event);
+      }
+      return before.count;
+    })();
+  }
+
   async healthCheck(): Promise<void> {
     this.db.prepare('SELECT 1').get();
   }

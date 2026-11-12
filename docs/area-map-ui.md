@@ -143,3 +143,41 @@ overwrite an existing area by posting a known one.
 HTMX and MapLibre are served from the app itself, so no CDN is required. The
 basemap tiles do come from `tile.openstreetmap.org`, so without internet access from
 the **browser** the area circles still render, but over a blank background.
+
+## Recomputing event history
+
+Enter a tracker ID in the Recompute events form and confirm. Replay uses all stored
+locations in timestamp order (database ID breaks ties) and the user's current
+areas. It replaces only that user's events in one database transaction. Historical
+notifications and Redis pub/sub messages are not resent. Date ranges are not yet
+exposed. Locations stream from SQLite or are fetched in pages from Postgres;
+produced events are held in memory until replacement.
+
+Ingestion and replay serialize work per user. All ingestion processes must run
+this version.
+
+With Postgres, they use a transaction-scoped advisory lock on the same connection
+as the repository operations. A crash rolls back uncommitted writes and releases
+the lock automatically. Rebuilt events and their final inside/pending-exit state
+commit together in `geofence_replay_state`. Before saving the next live location,
+ingestion applies that state to Redis and acknowledges it in the ingestion
+transaction. A failed Redis restoration leaves the handoff available for retry;
+a crash before ingestion commits also retains it. No manual lock cleanup is
+needed for Postgres. Startup creates the recovery table automatically.
+
+SQLite uses a per-user Redis lock and a Redis replay marker. These locks do not
+expire: a suspended process must not resume after a new owner takes over. After a
+SQLite process crash, stop the affected process before removing its
+`geofence:lock:<userId>` key. If replay crashed before database commit, also remove
+`geofence:replay:<userId>`, then rerun replay. Redis loss between SQLite replay and
+the next live fix loses this marker, so replay again after restoring Redis.
+
+To run the Postgres recovery tests, point `TEST_POSTGRES_URL` at a **throwaway**
+database and `REDIS_URL` at a test Redis instance, then run `bun test`. The Postgres
+suite clears its location, event, and replay-state tables. It kills a separate
+worker process to verify rollback and automatic lock release, and verifies retry
+after a failed Redis restoration.
+
+Successful runs log duration and before/after counts, and expose
+`geofence_recompute_duration_ms`, `geofence_recompute_locations_total`, and
+`geofence_recompute_events_total` at `/_metrics`.

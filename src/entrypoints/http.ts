@@ -1,3 +1,4 @@
+import { withUserLock } from '@/infrastructure/geofence/user-lock.ts';
 import { SQL } from 'bun';
 import { Database } from 'bun:sqlite';
 
@@ -92,14 +93,20 @@ if (config.postgresPassword !== undefined) {
   };
 }
 
+if (!deps.repo.withUserLock) {
+  deps.repo.withUserLock = (userId, work) => withUserLock(redis, userId, work);
+}
+
 // Keeps the geofence index in step with the area store. Not fatal -- ingestion
 // must keep accepting locations even when the projection cannot be rebuilt.
 if (await waitForRedis(redis)) {
   await areaRepo.initialize().catch((error: unknown) => {
     logger.error(`Failed to initialize the area projection: ${error}`);
+    areaRepo.initializeInBackground();
   });
 } else {
   logger.warn('Redis not reachable at startup; geofencing is degraded until it returns');
+  areaRepo.initializeInBackground();
 }
 
 const app = createHttpServer(deps);

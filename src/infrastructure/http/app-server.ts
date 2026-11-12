@@ -12,6 +12,7 @@ import type { AreaRepository, Logger, MetricsCollector } from '@/domain/ports.ts
  * event publisher).
  */
 export interface AppDeps {
+  recompute?: (userId: string) => Promise<{ locations: number; before: number; after: number }>;
   areaRepo: AreaRepository;
   logger: Logger;
   metrics: MetricsCollector;
@@ -114,6 +115,14 @@ function renderPage(): string {
         The draw panel sits outside #areas on purpose: the poll replaces that
         element every ${REFRESH_INTERVAL}, which would discard half-typed input.
       -->
+      <section>
+        <form hx-post="/users/recompute" hx-target="#recompute-result" hx-confirm="Replace this user's event history using current areas?" hx-disabled-elt="find button">
+          <label>User <input name="userId" required maxlength="64" /></label>
+          <button type="submit">Recompute events</button>
+          <span class="htmx-indicator">Recomputing…</span>
+        </form>
+        <p id="recompute-result" role="status"></p>
+      </section>
       <section id="draw-panel">
         <button type="button" id="draw-start">Add area</button>
         <form id="draw-form" hidden hx-post="/areas" hx-target="#areas" hx-swap="innerHTML">
@@ -182,6 +191,26 @@ export function createAppServer(deps: AppDeps) {
 
   app.get('/fragments/areas', async (_req, res) => {
     await sendAreasFragment(res);
+  });
+
+  app.post('/users/recompute', async (req, res) => {
+    const userId = req.body?.userId;
+    if (typeof userId !== 'string' || !userId.trim() || userId.length > 64) {
+      res.status(422).send('Enter a user ID.');
+      return;
+    }
+    try {
+      if (!deps.recompute) throw new Error('Recompute is unavailable');
+      const result = await deps.recompute(userId);
+      res
+        .type('html')
+        .send(
+          `Processed ${result.locations} locations. Events: ${result.before} before, ${result.after} after.`,
+        );
+    } catch (error) {
+      deps.logger.error('Recompute failed', error);
+      res.status(503).send('Could not recompute events. Please retry.');
+    }
   });
 
   app.post('/areas', async (req, res) => {

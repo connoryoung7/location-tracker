@@ -68,9 +68,16 @@ services:
       - /home/bun/app/node_modules
     environment:
       APP_PORT: "3002"
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: location_tracker
+      POSTGRES_PASSWORD: location_tracker
+      POSTGRES_DB: location_tracker
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
       REDIS_URL: redis://redis:6379
     depends_on:
+      db:
+        condition: service_healthy
       redis:
         condition: service_healthy
 

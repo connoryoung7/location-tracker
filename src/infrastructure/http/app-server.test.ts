@@ -17,6 +17,7 @@ beforeAll(async () => {
 
   const deps: AppDeps = {
     areaRepo,
+    recompute: async () => ({ locations: 10, before: 2, after: 4 }),
     logger: new ConsoleLogger(),
     metrics: new PrometheusMetricsCollector(),
   };
@@ -269,4 +270,17 @@ describe('GET /_health', () => {
     expect(res.status).toBe(503);
     expect(await res.json()).toEqual({ status: 'error' });
   });
+});
+
+test('recompute form confirms and endpoint returns a result summary', async () => {
+  const page = await (await fetch(baseUrl)).text();
+  expect(page).toContain('hx-confirm=');
+  expect(page).toContain('Recomputing…');
+  const response = await fetch(`${baseUrl}/users/recompute`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ userId: 'u' }),
+  });
+  expect(response.status).toBe(200);
+  expect(await response.text()).toContain('10 locations. Events: 2 before, 4 after.');
 });

@@ -117,6 +117,48 @@ describe('SyncingAreaRepository', () => {
     expect(await redis.smembers('area:projection-dirty')).toEqual([]);
   });
 
+  test('a user whose dirty marker could not reach Redis is still repaired later', async () => {
+    let failSadd = true;
+    const flakyRedis = new Proxy(redis, {
+      get(target, prop) {
+        if (prop === 'sadd') {
+          return (...args: Parameters<RedisClient['sadd']>) => {
+            if (failSadd) return Promise.reject(new Error('redis down'));
+            return target.sadd(...args);
+          };
+        }
+        const value = Reflect.get(target, prop, target);
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    });
+    let failNextApply = true;
+    const flaky: AreaProjection = {
+      applyArea: (area) => {
+        if (failNextApply) {
+          failNextApply = false;
+          return Promise.reject(new Error('redis down'));
+        }
+        return projection.applyArea(area);
+      },
+      removeArea: (userId, areaId) => projection.removeArea(userId, areaId),
+      replaceUserAreas: (userId, areas) => projection.replaceUserAreas(userId, areas),
+      replaceAll: (areas) => projection.replaceAll(areas),
+      listAllAreas: () => projection.listAllAreas(),
+      healthCheck: () => projection.healthCheck(),
+    };
+    const syncing = new SyncingAreaRepository(source, flaky, flakyRedis, mockLogger());
+
+    await syncing.addArea(buildArea({ id: 'a1', userId: 'AB' }));
+    expect(await redis.smembers('area:projection-dirty')).toEqual([]);
+    expect(await projection.listAllAreas()).toEqual([]);
+
+    // Redis is back; the in-process marker drives the repair.
+    failSadd = false;
+    await syncing.listAllAreas();
+
+    expect(await projection.listAllAreas()).toHaveLength(1);
+  });
+
   test('initialize imports areas that exist only in Redis', async () => {
     // Simulates the cutover: areas were Redis-only before the store existed.
     await projection.applyArea(buildArea({ id: 'legacy', userId: 'AB', name: 'Old Home' }));

@@ -2,6 +2,7 @@ import type {
   Address,
   Area,
   GeocodingResult,
+  GeofenceReplayState,
   LocationPayload,
   TransitionPayload,
   WaypointPayload,
@@ -14,7 +15,14 @@ export interface LocationService {
   saveWaypoint(payload: WaypointPayload): void | Promise<void>;
 }
 
+export interface ReplayStateRepository {
+  readReplayState(userId: string): Promise<GeofenceReplayState | undefined>;
+  clearReplayState(userId: string): Promise<void>;
+}
+
 export interface LocationRepository {
+  replayState?: ReplayStateRepository;
+  withUserLock?<T>(userId: string, work: () => Promise<T>): Promise<T>;
   saveLocation(payload: LocationPayload): void | Promise<void>;
   saveTransition(payload: TransitionPayload): void | Promise<void>;
   saveWaypoint(payload: WaypointPayload): void | Promise<void>;
@@ -52,6 +60,7 @@ export interface AreaProjection {
 }
 
 export interface GeofenceEvaluator {
+  restoreState?(userId: string, state: GeofenceReplayState): Promise<void>;
   evaluate(userId: string, lon: number, lat: number, tst: number): Promise<GeofenceEvent[]>;
 }
 
@@ -79,6 +88,21 @@ export interface NotificationSender {
 }
 
 export interface MetricsCollector {
+  recordRecompute?(durationMs: number, locations: number, events: number): void;
   recordRequest(method: string, path: string, statusCode: number, durationMs: number): void;
   getMetricsText(): Promise<string>;
+}
+
+export interface LocationHistoryRepository {
+  withUserLock?<T>(userId: string, work: () => Promise<T>): Promise<T>;
+  replayState?: ReplayStateRepository;
+  listLocations(
+    userId: string,
+    range?: { from?: number; to?: number },
+  ): AsyncIterable<LocationPayload>;
+  replaceAreaEvents(
+    userId: string,
+    events: GeofenceEvent[],
+    state?: GeofenceReplayState,
+  ): Promise<number>;
 }
