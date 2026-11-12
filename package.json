@@ -13,6 +13,7 @@
     "dev:app": "bun run --watch src/entrypoints/app.ts"
   },
   "devDependencies": {
+    "@libsql/client": "^0.18.0",
     "@types/bun": "latest",
     "@types/escape-html": "^1.0.4",
     "@types/express": "^5.0.6",
