@@ -5,14 +5,14 @@ hooks = [
     id = "oxfmt",
     name = "oxfmt",
     language = "system",
-    entry = "bunx oxfmt --write",
+    entry = "bun --bun x oxfmt --write",
     types_or = ["ts", "tsx"],
   },
   {
     id = "oxlint",
     name = "oxlint",
     language = "system",
-    entry = "bunx oxlint",
+    entry = "bun --bun x oxlint",
     types_or = ["ts", "tsx"],
   },
   {

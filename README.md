@@ -39,3 +39,15 @@ feat(auth): add API key rotation
 fix: handle null location payload
 chore!: drop support for MQTT v3
 ```
+
+## SQLite Studio
+
+`just db-studio` starts Drizzle Studio at <https://local.drizzle.studio> using the
+SQLite file at `DB_PATH` (default: `location-tracker.db`). Bun loads `DB_PATH` from
+`.env`; a value passed in the shell takes precedence. Studio does not require
+`ENCRYPTION_KEY` or Redis. Initialize the database with `just db-migrate` before
+inspecting application tables.
+
+Studio uses the development-only `@libsql/client` driver; the application continues
+to use `bun:sqlite`. This command inspects SQLite even when the application is
+configured to use Postgres.
