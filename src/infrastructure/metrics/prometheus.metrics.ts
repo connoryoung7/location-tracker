@@ -5,6 +5,7 @@ export class PrometheusMetricsCollector implements MetricsCollector {
   private readonly recomputeDuration = new Histogram({
     name: 'geofence_recompute_duration_ms',
     help: 'Replay duration',
+    buckets: [10, 50, 100, 500, 1000, 5000, 10000, 30000, 60000, 300000],
     registers: [],
   });
   private readonly recomputeLocations = new Counter({

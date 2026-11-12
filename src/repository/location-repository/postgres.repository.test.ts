@@ -122,6 +122,30 @@ describe.skipIf(!url)('Postgres replay crash recovery', () => {
     await Promise.all([first, waiting]);
   });
 
+  test('busy user lock times out and releases its pool connection', async () => {
+    const second = new PostgresLocationRepository(sql);
+    let release!: () => void;
+    let entered!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const ready = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const held = repo.withUserLock('u', async () => {
+      entered();
+      await gate;
+    });
+    await ready;
+    try {
+      await expect(second.withUserLock('u', async () => {})).rejects.toThrow();
+      await second.withUserLock('other', async () => {});
+    } finally {
+      release();
+      await held;
+    }
+  });
+
   test('history pages include tied timestamps and respect user and range', async () => {
     await sql`INSERT INTO locations (lat, lon, tst, tid)
       SELECT 0, n, 10, 'u' FROM generate_series(1, 1005) AS n`;
@@ -150,7 +174,7 @@ describe.skipIf(!url)('Postgres replay crash recovery', () => {
         await repo.saveLocation({ _type: 'location', tid: userId, lat: 0, lon: lon!, tst: tst! });
       }
       const deps = {
-        redis,
+        userLock: repo,
         repo,
         areaRepo,
         logger,
@@ -163,37 +187,26 @@ describe.skipIf(!url)('Postgres replay crash recovery', () => {
       const payload = { _type: 'location' as const, tid: userId, lat: 0, lon: 1, tst: 40 };
       const ingestion = {
         repo,
+        userLock: repo,
+        replayState: repo.replayState,
         logger,
         reverseGeocoder: mockGeocoder(),
         eventPublisher: mockEventPublisher(),
         geofence: live,
       };
-      await expect(
-        handleLocation(payload, {
-          ...ingestion,
-          geofence: {
-            evaluate: live.evaluate.bind(live),
-            restoreState: async () => {
-              throw new Error('Redis down');
-            },
+      await handleLocation(payload, {
+        ...ingestion,
+        geofence: {
+          evaluate: live.evaluate.bind(live),
+          restoreState: async () => {
+            throw new Error('Redis down');
           },
-        }),
-      ).rejects.toThrow('Redis down');
+        },
+      });
       expect(await repo.replayState.readReplayState(userId)).toEqual(committed);
       expect(
         Number((await sql`SELECT COUNT(*) AS count FROM locations WHERE tid = ${userId}`)[0].count),
-      ).toBe(2);
-      // Redis accepted the handoff, but ingestion fails before committing its
-      // acknowledgement. Both the location and acknowledgement must roll back.
-      class FailingRepository extends PostgresLocationRepository {
-        override async saveLocation(): Promise<void> {
-          throw new Error('ingestion interrupted');
-        }
-      }
-      await expect(
-        handleLocation(payload, { ...ingestion, repo: new FailingRepository(sql) }),
-      ).rejects.toThrow('ingestion interrupted');
-      expect(await repo.replayState.readReplayState(userId)).toEqual(committed);
+      ).toBe(3);
       await handleLocation(payload, ingestion);
       expect(ingestion.eventPublisher.publish).toHaveBeenCalledWith(
         expect.objectContaining({ _type: 'area.exited' }),

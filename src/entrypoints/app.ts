@@ -46,7 +46,7 @@ const app = createAppServer({
   metrics,
   recompute: (userId) =>
     recomputeAreaEvents(userId, {
-      redis,
+      userLock: repo,
       areaRepo,
       repo,
       logger,

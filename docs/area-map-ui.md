@@ -159,18 +159,20 @@ this version.
 With Postgres, they use a transaction-scoped advisory lock on the same connection
 as the repository operations. A crash rolls back uncommitted writes and releases
 the lock automatically. Rebuilt events and their final inside/pending-exit state
-commit together in `geofence_replay_state`. Before saving the next live location,
+commit together in `geofence_replay_state`. Before evaluating the next live location,
 ingestion applies that state to Redis and acknowledges it in the ingestion
 transaction. A failed Redis restoration leaves the handoff available for retry;
 a crash before ingestion commits also retains it. No manual lock cleanup is
 needed for Postgres. Startup creates the recovery table automatically.
 
-SQLite uses a per-user Redis lock and a Redis replay marker. These locks do not
-expire: a suspended process must not resume after a new owner takes over. After a
-SQLite process crash, stop the affected process before removing its
-`geofence:lock:<userId>` key. If replay crashed before database commit, also remove
-`geofence:replay:<userId>`, then rerun replay. Redis loss between SQLite replay and
-the next live fix loses this marker, so replay again after restoring Redis.
+SQLite uses a database write transaction and stores recovery state alongside the
+events. SQLite serializes writers database-wide; lock acquisition times out after
+one second. Process death rolls back uncommitted work and releases the lock.
+Neither backend requires manual Redis lock cleanup. Live locations are persisted
+before geofence work; Redis outages and busy geofence locks are logged and do not
+discard locations. A failed restoration retains its recovery record for retry.
+Postgres lock acquisition times out after 250ms to bound connection pool pressure.
+The geofence state transition remains under the database lock for consistency.
 
 To run the Postgres recovery tests, point `TEST_POSTGRES_URL` at a **throwaway**
 database and `REDIS_URL` at a test Redis instance, then run `bun test`. The Postgres

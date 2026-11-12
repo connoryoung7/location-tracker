@@ -33,6 +33,7 @@ export class PostgresLocationRepository implements LocationRepository {
     return this.pool.begin(async (tx) => {
       // The lock and all repository operations use this transaction's connection.
       // Postgres releases it on commit, rollback, or connection loss.
+      await tx`SET LOCAL lock_timeout = '250ms'`;
       await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`geofence:${userId}`}, 0))`;
       return this.transaction.run(tx, work);
     });
@@ -232,7 +233,7 @@ export class PostgresLocationRepository implements LocationRepository {
     let id = 0;
     while (true) {
       const rows = await this.conn`SELECT id, lat, lon, tst, tid FROM locations
-        WHERE tid = ${userId} AND tst >= ${range.from ?? 0} AND tst <= ${range.to ?? Number.MAX_SAFE_INTEGER}
+        WHERE tid = ${userId} AND tst >= ${range.from ?? 0} AND tst <= ${range.to ?? 2147483647}
         AND (tst > ${timestamp} OR (tst = ${timestamp} AND id > ${id})) ORDER BY tst, id LIMIT 1000`;
       if (!rows.length) return;
       for (const row of rows) {
@@ -254,8 +255,18 @@ export class PostgresLocationRepository implements LocationRepository {
       await tx`DELETE FROM area_events WHERE user_id = ${userId}`;
       for (const event of events) {
         if (event.userId !== userId) throw new Error('Event user mismatch');
-        await tx`INSERT INTO area_events (type, user_id, area_id, area_name, lat, lon, tst)
-          VALUES (${event._type}, ${userId}, ${event.areaId}, ${event.areaName ?? null}, ${event.lat}, ${event.lon}, ${event.tst})`;
+      }
+      for (let offset = 0; offset < events.length; offset += 1000) {
+        const rows = events.slice(offset, offset + 1000).map((event) => ({
+          type: event._type,
+          user_id: userId,
+          area_id: event.areaId,
+          area_name: event.areaName ?? null,
+          lat: event.lat,
+          lon: event.lon,
+          tst: event.tst,
+        }));
+        await tx`INSERT INTO area_events ${tx(rows)}`;
       }
       if (state) {
         await tx`INSERT INTO geofence_replay_state (user_id, state) VALUES (${userId}, ${state}::jsonb)

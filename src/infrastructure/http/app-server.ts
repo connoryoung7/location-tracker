@@ -7,7 +7,7 @@ import { CreateAreaSchema } from '@/domain/schemas.ts';
 import type { AreaRepository, Logger, MetricsCollector } from '@/domain/ports.ts';
 
 /**
- * The map UI only reads and writes areas, so it deliberately does not reuse the
+ * The map UI manages areas and triggers event-history recomputation, so it deliberately does not reuse the
  * ingestion app's `Deps` (location repository, decryptor, geofence evaluator,
  * event publisher).
  */

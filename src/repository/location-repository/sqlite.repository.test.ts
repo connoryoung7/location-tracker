@@ -37,3 +37,64 @@ test('history orders ties, filters users/ranges, replacement is atomic and repea
     db.close();
   }
 });
+
+test('SQLite replay state rolls back with events and live writes wait outside replay', async () => {
+  const db = new Database(':memory:');
+  runMigrations(db);
+  const repo = new SqliteLocationRepository(db);
+  try {
+    await expect(
+      repo.withUserLock('u', async () => {
+        await repo.replaceAreaEvents('u', [], { inside: ['a'], pending: [] });
+        throw new Error('interrupted');
+      }),
+    ).rejects.toThrow();
+    expect(await repo.replayState.readReplayState('u')).toBeUndefined();
+    await repo.withUserLock('u', async () => {
+      await repo.replaceAreaEvents('u', [], { inside: ['a'], pending: [] });
+    });
+    expect(await repo.replayState.readReplayState('u')).toEqual({ inside: ['a'], pending: [] });
+  } finally {
+    db.close();
+  }
+});
+
+test('SQLite releases its write lock and rolls back replay after a worker is killed', async () => {
+  const { mkdtemp, rm } = await import('node:fs/promises');
+  const directory = await mkdtemp('/tmp/location-replay-');
+  const path = `${directory}/test.db`;
+  const db = new Database(path);
+  runMigrations(db);
+  const repo = new SqliteLocationRepository(db);
+  const child = Bun.spawn(
+    [
+      process.execPath,
+      '-e',
+      `
+    import { Database } from 'bun:sqlite';
+    import { SqliteLocationRepository } from './src/repository/location-repository/sqlite.repository.ts';
+    const repo = new SqliteLocationRepository(new Database(process.env.TEST_SQLITE_PATH));
+    await repo.withUserLock('u', async () => {
+      await repo.replaceAreaEvents('u', [], { inside: ['a'], pending: [] });
+      console.log('locked');
+      await new Promise(() => {});
+    });
+  `,
+    ],
+    { env: { ...process.env, TEST_SQLITE_PATH: path }, stdout: 'pipe', stderr: 'pipe' },
+  );
+  try {
+    const ready = await child.stdout.getReader().read();
+    expect(new TextDecoder().decode(ready.value)).toContain('locked');
+    child.kill('SIGKILL');
+    await child.exited;
+    await repo.withUserLock('u', async () => {
+      expect(await repo.replayState.readReplayState('u')).toBeUndefined();
+    });
+  } finally {
+    child.kill();
+    await child.exited;
+    db.close();
+    await rm(directory, { recursive: true });
+  }
+});

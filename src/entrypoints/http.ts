@@ -1,4 +1,3 @@
-import { withUserLock } from '@/infrastructure/geofence/user-lock.ts';
 import { SQL } from 'bun';
 import { Database } from 'bun:sqlite';
 
@@ -68,6 +67,8 @@ if (config.postgresPassword !== undefined) {
   areaRepo = createAreaRepository({ kind: 'postgres', sql }, redis, logger);
   deps = {
     repo,
+    userLock: repo,
+    replayState: repo.replayState,
     logger,
     decryptor,
     reverseGeocoder,
@@ -83,6 +84,8 @@ if (config.postgresPassword !== undefined) {
   areaRepo = createAreaRepository({ kind: 'sqlite', db }, redis, logger);
   deps = {
     repo,
+    userLock: repo,
+    replayState: repo.replayState,
     logger,
     decryptor,
     reverseGeocoder,
@@ -91,10 +94,6 @@ if (config.postgresPassword !== undefined) {
     areaRepo,
     metrics,
   };
-}
-
-if (!deps.repo.withUserLock) {
-  deps.repo.withUserLock = (userId, work) => withUserLock(redis, userId, work);
 }
 
 // Keeps the geofence index in step with the area store. Not fatal -- ingestion

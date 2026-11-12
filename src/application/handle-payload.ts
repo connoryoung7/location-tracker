@@ -8,6 +8,8 @@ import type {
   Logger,
   MetricsCollector,
   PayloadDecryptor,
+  UserLock,
+  ReplayStateRepository,
 } from '@/domain/ports.ts';
 import { handleLocation } from '@/application/handlers/location.handler.ts';
 import { handleTransition } from '@/application/handlers/transition.handler.ts';
@@ -16,6 +18,8 @@ import { handleFallback } from '@/application/handlers/fallback.handler.ts';
 
 export interface Deps {
   repo: LocationRepository;
+  userLock?: UserLock;
+  replayState?: ReplayStateRepository;
   logger: Logger;
   decryptor: PayloadDecryptor;
   reverseGeocoder: Geocoder;

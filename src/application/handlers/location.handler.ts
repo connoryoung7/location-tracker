@@ -1,6 +1,8 @@
 import type { LocationPayload } from '@/domain/types.ts';
 import type {
   EventPublisher,
+  UserLock,
+  ReplayStateRepository,
   Geocoder,
   GeofenceEvaluator,
   LocationRepository,
@@ -11,6 +13,8 @@ export async function handleLocation(
   payload: LocationPayload,
   deps: {
     repo: LocationRepository;
+    userLock?: UserLock;
+    replayState?: ReplayStateRepository;
     logger: Logger;
     reverseGeocoder: Geocoder;
     geofence: GeofenceEvaluator;
@@ -29,21 +33,18 @@ export async function handleLocation(
     .catch((err) => {
       deps.logger.error(`Reverse geocode failed: ${err}`);
     });
+  await deps.repo.saveLocation(payload);
   const ingest = async () => {
-    if (deps.repo.replayState) {
-      const state = await deps.repo.replayState.readReplayState(payload.tid);
-      if (state) {
-        if (!deps.geofence.restoreState)
-          throw new Error('Geofence state restoration is unavailable');
-        // Fail before saving/evaluating if Redis cannot apply committed replay state.
-        // A rollback retains the handoff so the next request can retry it.
-        await deps.geofence.restoreState(payload.tid, state);
-        await deps.repo.replayState.clearReplayState(payload.tid);
-      }
-    }
-    await deps.repo.saveLocation(payload);
-
     try {
+      if (deps.replayState) {
+        const state = await deps.replayState.readReplayState(payload.tid);
+        if (state) {
+          if (!deps.geofence.restoreState)
+            throw new Error('Geofence state restoration is unavailable');
+          await deps.geofence.restoreState(payload.tid, state);
+          await deps.replayState.clearReplayState(payload.tid);
+        }
+      }
       const events = await deps.geofence.evaluate(
         payload.tid,
         payload.lon,
@@ -57,6 +58,10 @@ export async function handleLocation(
       deps.logger.error(`Geofence evaluation failed: ${err}`);
     }
   };
-  if (deps.repo.withUserLock) await deps.repo.withUserLock(payload.tid, ingest);
-  else await ingest();
+  try {
+    if (deps.userLock) await deps.userLock.withUserLock(payload.tid, ingest);
+    else await ingest();
+  } catch (error) {
+    deps.logger.error('Geofence work deferred; location is persisted', error);
+  }
 }
