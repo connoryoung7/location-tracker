@@ -8,9 +8,9 @@ import type {
   WaypointPayload,
 } from '@/domain/types.ts';
 import type { GeofenceEvent } from '@/domain/events.ts';
-import type { LocationRepository } from '@/domain/ports.ts';
+import type { LocationRepository, TrackedUserRepository } from '@/domain/ports.ts';
 
-export class PostgresLocationRepository implements LocationRepository {
+export class PostgresLocationRepository implements LocationRepository, TrackedUserRepository {
   private pool: SQL;
   private transaction = new AsyncLocalStorage<TransactionSQL>();
 
@@ -276,6 +276,12 @@ export class PostgresLocationRepository implements LocationRepository {
     };
     const transaction = this.transaction.getStore();
     return transaction ? transaction.savepoint(replace) : this.pool.begin(replace);
+  }
+
+  async listUserIds(): Promise<string[]> {
+    const rows = await this
+      .conn`SELECT tid AS user_id FROM locations UNION SELECT user_id FROM areas ORDER BY user_id`;
+    return rows.map((row: { user_id: string }) => row.user_id);
   }
 
   async healthCheck(): Promise<void> {

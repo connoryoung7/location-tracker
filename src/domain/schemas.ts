@@ -181,7 +181,16 @@ export const AreaSchema = z.object({
 export const CreateAreaSchema = z.object({
   userId: z.string().min(1).max(64),
   name: z.string().min(1).max(200),
-  lat: z.coerce.number().min(-90).max(90),
-  lon: z.coerce.number().min(-180).max(180),
-  radius: z.coerce.number().positive().max(100_000),
+  lat: z
+    .union([z.number(), z.string().trim().min(1)])
+    .transform(Number)
+    .pipe(z.number().min(-90).max(90)),
+  lon: z
+    .union([z.number(), z.string().trim().min(1)])
+    .transform(Number)
+    .pipe(z.number().min(-180).max(180)),
+  radius: z
+    .union([z.number(), z.string().trim().min(1)])
+    .transform(Number)
+    .pipe(z.number().positive().max(100_000)),
 });

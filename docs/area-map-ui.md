@@ -31,6 +31,7 @@ config schema up front. The map UI never uses the key itself.
 | `GET /fragments/areas`           | HTMX fragment — legend markup plus the areas as GeoJSON |
 | `POST /areas`                    | Create an area; the server assigns its `id`             |
 | `DELETE /areas/:userId/:areaId`  | Delete an area                                          |
+| `GET /users`                     | Known tracker IDs and area owners for the dropdowns     |
 | `GET /_health`                   | `200` when both stores answer, `503` otherwise          |
 | `GET /_metrics`                  | Prometheus metrics, same format as the ingestion API    |
 | `/vendor/*`                      | MapLibre and HTMX, served from `node_modules`           |
@@ -111,21 +112,31 @@ applies a MapLibre `filter` on the `userId` property.
 
 ## Drawing an area
 
-"Add area" puts the map in draw mode: click to place the centre, move out to size the
-radius, click again to fix it, then name it and pick a user. The dashed preview circle
-is computed in the browser purely for feedback — the geometry that gets stored is
-always recomputed server-side from the submitted lat/lon/radius.
+"Add area" defaults to placing the circle on the map: click to place the centre, move out to size the
+radius, then click again. Drag the blue centre marker to reposition the draft circle; the latitude and longitude fields
+update as you drag. The circle stays visible while you edit latitude,
+longitude, and radius in metres. Numeric edits update the preview immediately. Choose Enter
+coordinates for manual placement; On the map is selected each time a new draft starts. Naming the
+area or selecting its user does not interrupt map placement.
 
-The draw panel deliberately sits **outside** the polled `#areas` element. The 30s poll
-replaces that element wholesale, which would discard half-typed input.
+Both Add area and Recompute events use a User dropdown populated from distinct
+stored location tracker IDs and existing area owners. Users without areas can
+create their first one. A sole user is automatically selected; multiple users
+require an explicit choice, and an empty list disables submission. User polling
+preserves valid selections and does not replace the draft form.
 
-Deleting is done from an area's popup on the map. Editing geometry is not supported
-yet: changing a radius has to recompute geofence membership for that area, which is
-more than the current upsert does.
+Choose Review area to check the name, selected user, coordinates, and radius.
+The centre marker is locked during review and saving. Back to editing unlocks it and keeps the
+draft; Cancel discards it. Only Confirm and create sends
+a creation request. Confirmation is disabled during that request to prevent
+repeated clicks. Successful creation returns a JSON acknowledgement before the
+legend refresh, so a failed legend read cannot be mistaken for a failed save.
+Validation and store errors preserve the draft for correction.
 
-The user field is free text because a brand-new tracker ID has no areas yet, so a
-dropdown built from existing areas could never bootstrap the first one. It must match
-the OwnTracks `tid` for geofencing to apply to that device.
+The draw panel sits outside the polled `#areas` element, so background area
+refreshes preserve the draft circle, entered fields, and review step. Deleting a
+saved area remains available in its map popup. Editing an already saved area's
+geometry is a separate feature.
 
 ## Security
 

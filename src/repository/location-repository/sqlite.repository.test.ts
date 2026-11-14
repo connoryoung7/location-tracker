@@ -98,3 +98,25 @@ test('SQLite releases its write lock and rolls back replay after a worker is kil
     await rm(directory, { recursive: true });
   }
 });
+
+test('user options include trackers without areas and area owners without locations, once each', async () => {
+  const db = new Database(':memory:');
+  runMigrations(db);
+  const repo = new SqliteLocationRepository(db);
+  try {
+    expect(await repo.listUserIds()).toEqual([]);
+    repo.saveLocation({ _type: 'location', tid: 'AB', tst: 1, lat: 0, lon: 0 });
+    repo.saveLocation({ _type: 'location', tid: 'AB', tst: 2, lat: 0, lon: 0 });
+    db.run('INSERT INTO areas (id, user_id, name, lat, lon, radius) VALUES (?, ?, ?, ?, ?, ?)', [
+      'a',
+      'CD',
+      'Home',
+      0,
+      0,
+      100,
+    ]);
+    expect(await repo.listUserIds()).toEqual(['AB', 'CD']);
+  } finally {
+    db.close();
+  }
+});
