@@ -4,7 +4,12 @@ import { dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { buildAreaMapView, type AreaMapView } from '@/application/build-area-map-view.ts';
 import { CreateAreaSchema } from '@/domain/schemas.ts';
-import type { AreaRepository, Logger, MetricsCollector } from '@/domain/ports.ts';
+import type {
+  AreaRepository,
+  Logger,
+  MetricsCollector,
+  TrackedUserRepository,
+} from '@/domain/ports.ts';
 
 /**
  * The map UI manages areas and triggers event-history recomputation, so it deliberately does not reuse the
@@ -12,6 +17,7 @@ import type { AreaRepository, Logger, MetricsCollector } from '@/domain/ports.ts
  * event publisher).
  */
 export interface AppDeps {
+  users: TrackedUserRepository;
   recompute?: (userId: string) => Promise<{ locations: number; before: number; after: number }>;
   areaRepo: AreaRepository;
   logger: Logger;
@@ -107,7 +113,7 @@ function renderPage(): string {
       <div
         id="areas"
         hx-get="/fragments/areas"
-        hx-trigger="load, every ${REFRESH_INTERVAL}"
+        hx-trigger="load, refresh, every ${REFRESH_INTERVAL}"
         hx-swap="innerHTML"
       ></div>
 
@@ -117,28 +123,46 @@ function renderPage(): string {
       -->
       <section>
         <form hx-post="/users/recompute" hx-target="#recompute-result" hx-confirm="Replace this user's event history using current areas?" hx-disabled-elt="find button">
-          <label>User <input name="userId" required maxlength="64" /></label>
-          <button type="submit">Recompute events</button>
+          <label>User <select name="userId" required data-user-select disabled><option value="">Loading users…</option></select></label>
+          <button type="submit" data-user-submit disabled>Recompute events</button>
           <span class="htmx-indicator">Recomputing…</span>
         </form>
+        <p id="user-status" role="status"></p>
         <p id="recompute-result" role="status"></p>
       </section>
       <section id="draw-panel">
         <button type="button" id="draw-start">Add area</button>
-        <form id="draw-form" hidden hx-post="/areas" hx-target="#areas" hx-swap="innerHTML">
-          <p class="draw-hint">Click the map to place the centre, then drag to size it.</p>
+        <form id="draw-form" hidden>
+          <fieldset id="draw-fields">
+          <label>Place circle
+            <select id="draw-placement">
+              <option value="map" selected>On the map</option>
+              <option value="coordinates">Enter coordinates</option>
+            </select>
+          </label>
+          <p class="draw-hint" id="draw-placement-hint">Click the map to place the centre, move to size the circle, then click again.</p>
           <label>Name <input type="text" name="name" required maxlength="200" /></label>
-          <label>User <input type="text" name="userId" required maxlength="64" /></label>
+          <label>User <select name="userId" required data-user-select disabled><option value="">Loading users…</option></select></label>
           <p class="draw-readout" id="draw-readout">No centre set</p>
-          <input type="hidden" name="lat" />
-          <input type="hidden" name="lon" />
-          <input type="hidden" name="radius" />
+          <details id="draw-coordinates">
+          <summary>Adjust coordinates and radius</summary>
+          <label>Latitude <input type="number" name="lat" required min="-90" max="90" step="any" /></label>
+          <label>Longitude <input type="number" name="lon" required min="-180" max="180" step="any" /></label>
+          <label>Radius (metres) <input type="number" name="radius" required min="0.01" max="100000" step="any" /></label>
+          </details>
+          </fieldset>
+          <section id="draw-confirmation" hidden aria-label="Confirm area">
+            <h2>Review area</h2>
+            <p>The circle is a draft. Confirm and create adds it to your saved areas.</p>
+            <p id="draw-summary"></p>
+            <button type="button" id="draw-back">Back to editing</button>
+          </section>
           <div class="draw-actions">
-            <button type="submit">Save</button>
+            <button type="submit" id="draw-submit" data-user-submit disabled>Review area</button>
             <button type="button" id="draw-cancel">Cancel</button>
           </div>
         </form>
-        <p id="form-error" class="form-error"></p>
+        <p id="form-error" class="form-error" role="status"></p>
       </section>
     </aside>
     <div id="map"></div>
@@ -193,6 +217,15 @@ export function createAppServer(deps: AppDeps) {
     await sendAreasFragment(res);
   });
 
+  app.get('/users', async (_req, res) => {
+    try {
+      res.json(await deps.users.listUserIds());
+    } catch (error) {
+      deps.logger.error('Failed to load users', error);
+      res.status(503).json({ error: 'Could not load users. Retrying…' });
+    }
+  });
+
   app.post('/users/recompute', async (req, res) => {
     const userId = req.body?.userId;
     if (typeof userId !== 'string' || !userId.trim() || userId.length > 64) {
@@ -219,17 +252,27 @@ export function createAppServer(deps: AppDeps) {
       const message = result.error.issues
         .map((issue) => `${issue.path.join('.')}: ${issue.message}`)
         .join('; ');
+      if (req.get('accept') === 'application/json') {
+        res.status(422).json({ error: message });
+        return;
+      }
       await sendAreasFragment(res, { status: 422, formError: message });
       return;
     }
 
+    const id = randomUUID();
     try {
       // The server owns the ID so a client cannot overwrite an existing area by
       // posting a known one.
-      await deps.areaRepo.addArea({ id: randomUUID(), ...result.data });
+      await deps.areaRepo.addArea({ id, ...result.data });
     } catch (error) {
       deps.logger.error('Failed to create area', error);
       res.status(503).type('html').send(renderAreasError());
+      return;
+    }
+
+    if (req.get('accept') === 'application/json') {
+      res.status(201).json({ id });
       return;
     }
 

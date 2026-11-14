@@ -41,6 +41,7 @@ if (await waitForRedis(redis)) {
 }
 
 const app = createAppServer({
+  users: repo,
   areaRepo,
   logger,
   metrics,

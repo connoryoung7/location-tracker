@@ -17,6 +17,7 @@ beforeAll(async () => {
 
   const deps: AppDeps = {
     areaRepo,
+    users: { listUserIds: async () => ['AB', 'CD'] },
     recompute: async () => ({ locations: 10, before: 2, after: 4 }),
     logger: new ConsoleLogger(),
     metrics: new PrometheusMetricsCollector(),
@@ -283,4 +284,32 @@ test('recompute form confirms and endpoint returns a result summary', async () =
   });
   expect(response.status).toBe(200);
   expect(await response.text()).toContain('10 locations. Events: 2 before, 4 after.');
+});
+
+test('user options come from the tracked-user repository', async () => {
+  expect(await (await fetch(`${baseUrl}/users`)).json()).toEqual(['AB', 'CD']);
+});
+
+test('JSON confirmation returns success after saving without depending on a legend refresh', async () => {
+  const response = await fetch(`${baseUrl}/areas`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({ userId: 'AB', name: 'Home', lat: 0, lon: 0, radius: 100 }),
+  });
+  expect(response.status).toBe(201);
+  expect(((await response.json()) as { id: string }).id).toBe(
+    areaRepo.addArea.mock.calls[0]![0].id,
+  );
+  expect(areaRepo.listAllAreas).not.toHaveBeenCalled();
+});
+
+test('JSON confirmation rejects blank coordinates without persisting', async () => {
+  const response = await fetch(`${baseUrl}/areas`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({ userId: 'AB', name: 'Home', lat: '', lon: 0, radius: 100 }),
+  });
+  expect(response.status).toBe(422);
+  expect(((await response.json()) as { error: string }).error).toContain('lat');
+  expect(areaRepo.addArea).not.toHaveBeenCalled();
 });

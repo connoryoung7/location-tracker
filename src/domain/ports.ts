@@ -106,3 +106,7 @@ export interface LocationHistoryRepository {
     state?: GeofenceReplayState,
   ): Promise<number>;
 }
+
+export interface TrackedUserRepository {
+  listUserIds(): Promise<string[]>;
+}

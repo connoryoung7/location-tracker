@@ -1,4 +1,4 @@
-import { test, expect, describe, spyOn, beforeEach } from 'bun:test';
+import { test, expect, describe, spyOn, beforeEach, afterAll } from 'bun:test';
 import { NominatimGeocoder } from '@/infrastructure/geocoder/nominatim.geocoder';
 import { CoordinatePrecision } from '@/domain/types';
 
@@ -25,6 +25,9 @@ const fullNominatimResponse = {
 };
 
 const fetchSpy = spyOn(globalThis, 'fetch');
+
+// Other test files use real HTTP; do not leak this global spy into them.
+afterAll(() => fetchSpy.mockRestore());
 
 beforeEach(() => {
   fetchSpy.mockReset();

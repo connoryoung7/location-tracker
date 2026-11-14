@@ -146,6 +146,18 @@ describe.skipIf(!url)('Postgres replay crash recovery', () => {
     }
   });
 
+  test('user discovery includes area-only owners and trackers without areas', async () => {
+    const owner = crypto.randomUUID();
+    await repo.saveLocation({ _type: 'location', tid: 'AB', lat: 0, lon: 0, tst: 1 });
+    await repo.saveLocation({ _type: 'location', tid: 'AB', lat: 0, lon: 0, tst: 2 });
+    await sql`INSERT INTO areas (id, user_id, name, lat, lon, radius) VALUES (${owner}, ${owner}, 'Home', 0, 0, 100)`;
+    try {
+      expect((await repo.listUserIds()).sort()).toEqual([owner, 'AB'].sort());
+    } finally {
+      await sql`DELETE FROM areas WHERE id = ${owner}`;
+    }
+  });
+
   test('history pages include tied timestamps and respect user and range', async () => {
     await sql`INSERT INTO locations (lat, lon, tst, tid)
       SELECT 0, n, 10, 'u' FROM generate_series(1, 1005) AS n`;

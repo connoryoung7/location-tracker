@@ -7,9 +7,9 @@ import type {
   WaypointPayload,
 } from '@/domain/types.ts';
 import type { GeofenceEvent } from '@/domain/events.ts';
-import type { LocationRepository } from '@/domain/ports.ts';
+import type { LocationRepository, TrackedUserRepository } from '@/domain/ports.ts';
 
-export class SqliteLocationRepository implements LocationRepository {
+export class SqliteLocationRepository implements LocationRepository, TrackedUserRepository {
   private db: Database;
 
   private queue: Promise<unknown> = Promise.resolve();
@@ -184,6 +184,15 @@ export class SqliteLocationRepository implements LocationRepository {
         );
       return before.count;
     })();
+  }
+
+  async listUserIds(): Promise<string[]> {
+    const rows = this.db
+      .query(
+        'SELECT tid AS user_id FROM locations UNION SELECT user_id FROM areas ORDER BY user_id',
+      )
+      .all() as { user_id: string }[];
+    return rows.map((row) => row.user_id);
   }
 
   async healthCheck(): Promise<void> {

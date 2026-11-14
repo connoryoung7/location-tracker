@@ -1,6 +1,9 @@
+import { createDraftMarker } from '/static/draft-marker.js';
+import { createAreaForm, updateUserSelects } from '/static/area-form.js';
 // maplibre-gl v6 ships named ESM exports only — there is no default export.
 import {
   MapLibreMap,
+  Marker,
   NavigationControl,
   Popup,
   ScaleControl,
@@ -108,7 +111,10 @@ map.on('click', 'areas-fill', (event) => {
   remove.type = 'button';
   remove.className = 'popup-delete';
   remove.textContent = 'Delete';
-  remove.setAttribute('hx-delete', `/areas/${encodeURIComponent(userId)}/${encodeURIComponent(areaId)}`);
+  remove.setAttribute(
+    'hx-delete',
+    `/areas/${encodeURIComponent(userId)}/${encodeURIComponent(areaId)}`,
+  );
   remove.setAttribute('hx-target', '#areas');
   remove.setAttribute('hx-swap', 'innerHTML');
   remove.setAttribute('hx-confirm', `Delete "${name}"?`);
@@ -209,12 +215,9 @@ document.body.addEventListener('change', (event) => {
 
 // --- Drawing a new area -----------------------------------------------------
 
-const drawForm = document.getElementById('draw-form');
-const drawStart = document.getElementById('draw-start');
-const drawCancel = document.getElementById('draw-cancel');
 const drawReadout = document.getElementById('draw-readout');
 
-/** 'idle' | 'placing' (awaiting a centre) | 'sizing' (dragging the radius) */
+/** 'idle' | 'placing' | 'sizing' | 'editing' */
 let drawState = 'idle';
 let drawCentre = null;
 let drawRadius = 0;
@@ -268,57 +271,102 @@ function setPreview(centre, radius) {
   );
 }
 
-function enterDrawMode() {
-  drawState = 'placing';
-  drawCentre = null;
-  drawRadius = 0;
-  drawForm.hidden = false;
-  drawStart.hidden = true;
-  drawReadout.textContent = 'Click the map to place the centre';
-  map.getCanvas().style.cursor = 'crosshair';
-  setPreview(null, 0);
-}
-
-function exitDrawMode() {
-  drawState = 'idle';
-  drawCentre = null;
-  drawRadius = 0;
-  drawForm.hidden = true;
-  drawForm.reset();
-  drawStart.hidden = false;
+const draftMarker = createDraftMarker(map, Marker, (centre, radius) => {
+  drawState = 'editing';
   map.getCanvas().style.cursor = '';
-  setPreview(null, 0);
-}
+  areaForm.setGeometry(centre, radius);
+  document.getElementById('draw-coordinates').open = true;
+  document.getElementById('draw-placement-hint').textContent =
+    'Drag the centre marker or edit the coordinates and radius. Choose Review area when ready.';
+});
 
-function writeDrawFields() {
-  drawForm.elements.lat.value = drawCentre === null ? '' : String(drawCentre[1]);
-  drawForm.elements.lon.value = drawCentre === null ? '' : String(drawCentre[0]);
-  drawForm.elements.radius.value = drawRadius > 0 ? String(Math.round(drawRadius)) : '';
-}
+const areaForm = createAreaForm(document, {
+  preview: (centre, radius) => {
+    setPreview(centre, radius);
+    draftMarker.update(centre, radius);
+    drawCentre = centre;
+    drawRadius = radius;
+    drawReadout.textContent = centre
+      ? `Centre ${centre[1]}, ${centre[0]} · radius ${radius}m`
+      : 'Set a valid centre and radius';
+  },
+  editingChanged: (isEditable) => draftMarker.setEditable(isEditable),
+  started: () => {
+    drawState = 'placing';
+    drawCentre = null;
+    drawRadius = 0;
+    drawReadout.textContent = 'Click the map to place the centre';
+    map.getCanvas().style.cursor = 'crosshair';
+    setPreview(null, 0);
+    draftMarker.update(null, 0);
+  },
+  placementChanged: (mode) => {
+    drawState = mode === 'map' ? 'placing' : 'editing';
+    drawCentre = null;
+    drawRadius = 0;
+    map.getCanvas().style.cursor = mode === 'map' ? 'crosshair' : '';
+  },
+  cancelled: () => {
+    drawState = 'idle';
+    drawCentre = null;
+    drawRadius = 0;
+    map.getCanvas().style.cursor = '';
+  },
+  saved: () => window.htmx?.trigger('#areas', 'refresh'),
+});
 
-drawStart.addEventListener('click', enterDrawMode);
-drawCancel.addEventListener('click', exitDrawMode);
+document.getElementById('draw-form').addEventListener('input', (event) => {
+  // Naming an area or selecting a user must not cancel pending map placement.
+  if (['lat', 'lon', 'radius'].includes(event.target.name)) {
+    drawState = 'editing';
+    map.getCanvas().style.cursor = '';
+  }
+});
+document.getElementById('draw-form').addEventListener('submit', () => {
+  if (drawCentre !== null) drawState = 'editing';
+  map.getCanvas().style.cursor = drawState === 'placing' ? 'crosshair' : '';
+});
+
+// User polling updates only options; it never replaces draft fields or review.
+async function refreshUsers() {
+  try {
+    const response = await fetch('/users');
+    if (!response.ok) throw new Error('Could not load users. Retrying…');
+    const users = await response.json();
+    updateUserSelects(document, users);
+    document.getElementById('user-status').textContent = users.length
+      ? ''
+      : 'No tracked users yet. Send a location to get started.';
+  } catch (error) {
+    document.getElementById('user-status').textContent = error.message;
+  }
+}
+refreshUsers();
+setInterval(refreshUsers, 30000);
 
 map.on('click', (event) => {
-  if (drawState === 'idle') {
-    return;
-  }
+  if (drawState !== 'placing' && drawState !== 'sizing') return;
 
-  const point = [event.lngLat.lng, event.lngLat.lat];
+  const point = [((((event.lngLat.lng + 180) % 360) + 360) % 360) - 180, event.lngLat.lat];
 
   if (drawState === 'placing') {
     drawCentre = point;
     drawState = 'sizing';
+    drawRadius = 0;
+    draftMarker.update(point, 0);
     drawReadout.textContent = 'Move out to size it, then click to fix';
     return;
   }
 
-  // Second click fixes the radius. A zero-radius area is rejected server-side,
-  // so keep sizing until the pointer has actually moved off the centre.
+  // Use the click position too, so two taps work without mousemove events.
+  drawRadius = distanceMeters(drawCentre, point);
   if (drawRadius > 0) {
-    drawState = 'placing';
+    drawState = 'editing';
     drawReadout.textContent = `Centre set · radius ${Math.round(drawRadius)}m`;
-    writeDrawFields();
+    areaForm.setGeometry(drawCentre, drawRadius);
+    document.getElementById('draw-coordinates').open = true;
+    document.getElementById('draw-placement-hint').textContent =
+      'Drag the centre marker or edit the coordinates and radius. Choose Review area when ready.';
     map.getCanvas().style.cursor = '';
   }
 });
@@ -331,17 +379,5 @@ map.on('mousemove', (event) => {
   drawRadius = distanceMeters(drawCentre, [event.lngLat.lng, event.lngLat.lat]);
   drawReadout.textContent = `Radius ${Math.round(drawRadius)}m`;
   setPreview(drawCentre, drawRadius);
-  writeDrawFields();
-});
-
-// A successful save re-renders the legend; clear the draw state so the panel is
-// ready for the next one. Failures keep the form so the input can be corrected.
-document.body.addEventListener('htmx:afterRequest', (event) => {
-  if (event.target !== drawForm) {
-    return;
-  }
-
-  if (event.detail.successful && event.detail.xhr?.status === 200) {
-    exitDrawMode();
-  }
+  areaForm.setGeometry(drawCentre, drawRadius);
 });
