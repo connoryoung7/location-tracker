@@ -30,6 +30,7 @@ const REFRESH_INTERVAL = '30s';
 const VENDOR_PACKAGES = {
   maplibre: 'maplibre-gl/dist/maplibre-gl.mjs',
   htmx: 'htmx.org/dist/htmx.min.js',
+  pico: '@picocss/pico',
 } as const;
 
 /**
@@ -58,7 +59,9 @@ function renderAreasFragment(view: AreaMapView): string {
     .join('');
 
   const emptyState =
-    view.legend.length === 0 ? '<p class="legend-empty">No areas defined yet.</p>' : '';
+    view.legend.length === 0
+      ? '<p class="legend-empty">No areas defined yet. Use <strong>Add area</strong> to draw one.</p>'
+      : '';
 
   return `
     ${emptyState}
@@ -73,7 +76,7 @@ function renderAreasFragment(view: AreaMapView): string {
  * rather than blanking out.
  */
 function renderAreasError(): string {
-  return `<p class="legend-error">Could not reach the area store. Retrying…</p>`;
+  return `<p class="notice legend-error" data-tone="error" role="alert">Could not reach the area store. Retrying…</p>`;
 }
 
 /**
@@ -82,7 +85,7 @@ function renderAreasError(): string {
  * on success, which also clears a previous error.
  */
 function renderFormErrorOob(message: string): string {
-  return `<p id="form-error" hx-swap-oob="true" class="form-error">${escapeHtml(message)}</p>`;
+  return `<p id="form-error" hx-swap-oob="true" class="notice" data-tone="error" role="status">${escapeHtml(message)}</p>`;
 }
 
 function renderPage(): string {
@@ -102,70 +105,102 @@ function renderPage(): string {
       content='{"responseHandling":[{"code":"204","swap":false},{"code":"422","swap":true},{"code":"503","swap":true},{"code":"[23]..","swap":true},{"code":"[45]..","swap":false,"error":true}]}'
     />
     <title>Location Tracker — Areas</title>
+    <link rel="stylesheet" href="/vendor/pico/pico.conditional.min.css" />
     <link rel="stylesheet" href="/vendor/maplibre/maplibre-gl.css" />
     <link rel="stylesheet" href="/static/app.css" />
     <script src="/vendor/htmx/htmx.min.js" defer></script>
     <script type="module" src="/static/app.js"></script>
   </head>
   <body>
-    <aside id="legend">
-      <h1>Areas</h1>
-      <div
-        id="areas"
-        hx-get="/fragments/areas"
-        hx-trigger="load, refresh, every ${REFRESH_INTERVAL}"
-        hx-swap="innerHTML"
-      ></div>
+    <aside id="sidebar" class="pico">
+      <header class="app-header">
+        <svg class="app-logo" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path d="M12 2a7 7 0 0 0-7 7c0 5.25 7 13 7 13s7-7.75 7-13a7 7 0 0 0-7-7Zm0 9.5a2.5 2.5 0 1 1 0-5 2.5 2.5 0 0 1 0 5Z" />
+        </svg>
+        <div>
+          <h1>Location Tracker</h1>
+          <p>Areas and geofence events</p>
+        </div>
+      </header>
+
+      <section class="panel" aria-labelledby="areas-heading">
+        <h2 id="areas-heading">Areas</h2>
+        <div
+          id="areas"
+          hx-get="/fragments/areas"
+          hx-trigger="load, refresh, every ${REFRESH_INTERVAL}"
+          hx-swap="innerHTML"
+        ></div>
+      </section>
 
       <!--
         The draw panel sits outside #areas on purpose: the poll replaces that
         element every ${REFRESH_INTERVAL}, which would discard half-typed input.
       -->
-      <section>
-        <form hx-post="/users/recompute" hx-target="#recompute-result" hx-confirm="Replace this user's event history using current areas?" hx-disabled-elt="find button">
-          <label>User <select name="userId" required data-user-select disabled><option value="">Loading users…</option></select></label>
-          <button type="submit" data-user-submit disabled>Recompute events</button>
-          <span class="htmx-indicator">Recomputing…</span>
-        </form>
-        <p id="user-status" role="status"></p>
-        <p id="recompute-result" role="status"></p>
-      </section>
-      <section id="draw-panel">
-        <button type="button" id="draw-start">Add area</button>
+      <section class="panel" id="draw-panel" aria-labelledby="draw-heading">
+        <h2 id="draw-heading">New area</h2>
+        <button type="button" id="draw-start" class="block">Add area</button>
         <form id="draw-form" hidden>
+          <ol class="draw-steps" aria-label="Progress">
+            <li class="draw-step-edit">Place &amp; adjust</li>
+            <li class="draw-step-review">Review</li>
+          </ol>
           <fieldset id="draw-fields">
-          <label>Place circle
-            <select id="draw-placement">
-              <option value="map" selected>On the map</option>
-              <option value="coordinates">Enter coordinates</option>
-            </select>
-          </label>
-          <p class="draw-hint" id="draw-placement-hint">Click the map to place the centre, move to size the circle, then click again.</p>
-          <label>Name <input type="text" name="name" required maxlength="200" /></label>
-          <label>User <select name="userId" required data-user-select disabled><option value="">Loading users…</option></select></label>
-          <p class="draw-readout" id="draw-readout">No centre set</p>
-          <details id="draw-coordinates">
-          <summary>Adjust coordinates and radius</summary>
-          <label>Latitude <input type="number" name="lat" required min="-90" max="90" step="any" /></label>
-          <label>Longitude <input type="number" name="lon" required min="-180" max="180" step="any" /></label>
-          <label>Radius (metres) <input type="number" name="radius" required min="0.01" max="100000" step="any" /></label>
-          </details>
+            <label>Place circle
+              <select id="draw-placement">
+                <option value="map" selected>On the map</option>
+                <option value="coordinates">Enter coordinates</option>
+              </select>
+            </label>
+            <p class="draw-hint" id="draw-placement-hint">Click the map to place the centre, move to size the circle, then click again.</p>
+            <label>Name <input type="text" name="name" required maxlength="200" /></label>
+            <label>User <select name="userId" required data-user-select disabled><option value="">Loading users…</option></select></label>
+            <p class="draw-readout" id="draw-readout">No centre set</p>
+            <details id="draw-coordinates">
+              <summary>Adjust coordinates and radius</summary>
+              <label>Latitude <input type="number" name="lat" required min="-90" max="90" step="any" /></label>
+              <label>Longitude <input type="number" name="lon" required min="-180" max="180" step="any" /></label>
+              <label>Radius (metres) <input type="number" name="radius" required min="0.01" max="100000" step="any" /></label>
+            </details>
           </fieldset>
-          <section id="draw-confirmation" hidden aria-label="Confirm area">
-            <h2>Review area</h2>
+          <section id="draw-confirmation" class="draw-review" hidden aria-label="Confirm area">
+            <h3>Review area</h3>
             <p>The circle is a draft. Confirm and create adds it to your saved areas.</p>
             <p id="draw-summary"></p>
-            <button type="button" id="draw-back">Back to editing</button>
+            <button type="button" id="draw-back" class="secondary outline">Back to editing</button>
           </section>
           <div class="draw-actions">
             <button type="submit" id="draw-submit" data-user-submit disabled>Review area</button>
-            <button type="button" id="draw-cancel">Cancel</button>
+            <button type="button" id="draw-cancel" class="secondary outline">Cancel</button>
           </div>
         </form>
-        <p id="form-error" class="form-error" role="status"></p>
+        <p id="form-error" class="notice" data-tone="error" role="status"></p>
       </section>
+
+      <section class="panel" aria-labelledby="recompute-heading">
+        <h2 id="recompute-heading">Event history</h2>
+        <p class="panel-hint">Rebuild a user's entry and exit events from their stored locations and the current areas.</p>
+        <form class="recompute-form" hx-post="/users/recompute" hx-target="#recompute-result" hx-confirm="Replace this user's event history using current areas?" hx-disabled-elt="find button">
+          <label>User <select name="userId" required data-user-select disabled><option value="">Loading users…</option></select></label>
+          <button type="submit" class="secondary" data-user-submit disabled>Recompute events</button>
+          <span class="htmx-indicator" aria-busy="true">Recomputing…</span>
+        </form>
+        <p id="user-status" class="notice" data-tone="info" role="status"></p>
+        <p id="recompute-result" class="notice" data-tone="info" role="status"></p>
+      </section>
+
+      <dialog id="confirm-dialog" aria-labelledby="confirm-title" aria-describedby="confirm-message">
+        <article>
+          <header><h3 id="confirm-title">Please confirm</h3></header>
+          <p id="confirm-message"></p>
+          <footer>
+            <button type="button" id="confirm-cancel" class="secondary outline">Cancel</button>
+            <button type="button" id="confirm-accept">Confirm</button>
+          </footer>
+        </article>
+      </dialog>
     </aside>
-    <div id="map"></div>
+    <main id="map" aria-label="Map of areas"></main>
   </body>
 </html>`;
 }
