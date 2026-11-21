@@ -21,20 +21,14 @@ const EMPTY_COLLECTION = { type: 'FeatureCollection', features: [] };
 const EARTH_RADIUS_METERS = 6_371_008.8;
 const PREVIEW_VERTICES = 64;
 
-// Raster OSM basemap. MapLibre needs a style, and this avoids an API key.
-const BASEMAP_STYLE = {
-  version: 8,
-  sources: {
-    osm: {
-      type: 'raster',
-      tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
-      tileSize: 256,
-      maxzoom: 19,
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-    },
-  },
-  layers: [{ id: 'osm', type: 'raster', source: 'osm' }],
-};
+/**
+ * OpenFreeMap vector basemaps: free, no API key, and muted enough that the
+ * per-user area colours stand out. Picked once at load to match the sidebar's
+ * colour scheme; switching live would need setStyle, which drops the area layers.
+ */
+const BASEMAP_STYLE = window.matchMedia('(prefers-color-scheme: dark)').matches
+  ? 'https://tiles.openfreemap.org/styles/dark'
+  : 'https://tiles.openfreemap.org/styles/positron';
 
 const map = new MapLibreMap({
   container: 'map',
@@ -103,13 +97,15 @@ map.on('click', 'areas-fill', (event) => {
   // Built as DOM rather than an HTML string: area names and user IDs are
   // untrusted, and textContent cannot be escaped wrong.
   const container = document.createElement('div');
+  // Opts the popup into Pico's scoped styles; the map itself stays outside them.
+  container.className = 'pico popup';
   const label = document.createElement('p');
   label.className = 'popup-label';
   label.textContent = `${name} — ${userId} (${Math.round(radius)}m)`;
 
   const remove = document.createElement('button');
   remove.type = 'button';
-  remove.className = 'popup-delete';
+  remove.className = 'popup-delete outline';
   remove.textContent = 'Delete';
   remove.setAttribute(
     'hx-delete',
@@ -124,7 +120,9 @@ map.on('click', 'areas-fill', (event) => {
   const popup = new Popup().setLngLat(event.lngLat).setDOMContent(container).addTo(map);
   // The button was created after htmx scanned the page, so wire it up by hand.
   window.htmx?.process(container);
-  remove.addEventListener('click', () => popup.remove());
+  // Closed once the request is actually sent: the confirm dialog is async, so
+  // closing on click would detach the button before the user had answered.
+  remove.addEventListener('htmx:beforeRequest', () => popup.remove());
 });
 
 map.on('mouseenter', 'areas-fill', () => {
@@ -334,11 +332,13 @@ async function refreshUsers() {
     if (!response.ok) throw new Error('Could not load users. Retrying…');
     const users = await response.json();
     updateUserSelects(document, users);
-    document.getElementById('user-status').textContent = users.length
-      ? ''
-      : 'No tracked users yet. Send a location to get started.';
+    setNotice(
+      'user-status',
+      'info',
+      users.length ? '' : 'No tracked users yet. Send a location to get started.',
+    );
   } catch (error) {
-    document.getElementById('user-status').textContent = error.message;
+    setNotice('user-status', 'error', error.message);
   }
 }
 refreshUsers();
@@ -380,4 +380,54 @@ map.on('mousemove', (event) => {
   drawReadout.textContent = `Radius ${Math.round(drawRadius)}m`;
   setPreview(drawCentre, drawRadius);
   areaForm.setGeometry(drawCentre, drawRadius);
+});
+
+/** Sets a status line's text and tone; an empty message hides it via CSS. */
+function setNotice(id, tone, message) {
+  const element = document.getElementById(id);
+  element.dataset.tone = tone;
+  element.textContent = message;
+}
+
+// The recompute endpoint answers 422/503 with plain text into the same target
+// as a success, so the tone has to come from the status code.
+document.body.addEventListener('htmx:afterSwap', (event) => {
+  const { target, xhr } = event.detail;
+  if (target?.id === 'recompute-result') {
+    target.dataset.tone = xhr.status < 400 ? 'success' : 'error';
+  }
+});
+
+/**
+ * Replaces the browser's native `confirm()` for every `hx-confirm` with a
+ * styled dialog. htmx waits until `issueRequest` is called, so cancelling (the
+ * button, Escape, or a backdrop click) simply never sends the request.
+ */
+const confirmDialog = document.getElementById('confirm-dialog');
+let pendingConfirm = null;
+
+document.body.addEventListener('htmx:confirm', (event) => {
+  if (!event.detail.question) return;
+  event.preventDefault();
+  pendingConfirm = event.detail;
+  document.getElementById('confirm-message').textContent = event.detail.question;
+  confirmDialog.showModal();
+  document.getElementById('confirm-accept').focus();
+});
+
+document.getElementById('confirm-accept').addEventListener('click', () => {
+  const detail = pendingConfirm;
+  pendingConfirm = null;
+  confirmDialog.close();
+  detail?.issueRequest(true);
+});
+
+document.getElementById('confirm-cancel').addEventListener('click', () => confirmDialog.close());
+
+confirmDialog.addEventListener('click', (event) => {
+  if (event.target === confirmDialog) confirmDialog.close();
+});
+
+confirmDialog.addEventListener('close', () => {
+  pendingConfirm = null;
 });
