@@ -159,7 +159,7 @@ the **browser** the area circles still render, but over a blank background.
 
 ## Listing areas
 
-**List areas**, beside the sidebar heading, opens a modal table of every area:
+**List areas**, in the Areas panel header, opens a modal table of every area:
 name, user (with their map color), centre, and radius, grouped by user and then
 sorted by name. The table is fetched each time the modal opens. **Show** closes
 the modal and zooms the map to that area's circle. **Delete** asks for
@@ -167,7 +167,7 @@ confirmation, then refreshes the legend, the map, and the table together.
 
 ## Viewing events
 
-The Events panel lists the selected user's 100 most recent `area.entered` and
+The Recent events panel lists the selected user's 100 most recent `area.entered` and
 `area.exited` events, newest first, and plots each one on the map as a green
 (entered) or red (exited) point. It uses the same pattern as the areas: the
 `/fragments/events` response carries the list markup and an `events-data` JSON

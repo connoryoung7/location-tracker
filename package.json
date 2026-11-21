@@ -29,6 +29,7 @@
     "typescript": "^5"
   },
   "dependencies": {
+    "@picocss/pico": "^2.1.1",
     "drizzle-orm": "^0.45.1",
     "escape-html": "^1.0.3",
     "express": "^5.2.1",
