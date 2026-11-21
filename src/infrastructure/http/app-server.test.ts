@@ -2,21 +2,25 @@ import { test, expect, describe, beforeAll, afterAll, beforeEach } from 'bun:tes
 import { createAppServer, type AppDeps } from '@/infrastructure/http/app-server.ts';
 import { ConsoleLogger } from '@/infrastructure/logging/console.logger.ts';
 import { PrometheusMetricsCollector } from '@/infrastructure/metrics/prometheus.metrics.ts';
-import { mockAreaRepository } from '@/test/mocks.ts';
+import { mockAreaEventRepository, mockAreaRepository } from '@/test/mocks.ts';
 import { buildArea } from '@/test/factories.ts';
 import type { Server } from 'node:http';
+import type { GeofenceEvent } from '@/domain/events.ts';
 
 const TEST_PORT = 0; // let OS pick an available port
 
 let server: Server;
 let baseUrl: string;
 let areaRepo: ReturnType<typeof mockAreaRepository>;
+let areaEvents: ReturnType<typeof mockAreaEventRepository>;
 
 beforeAll(async () => {
   areaRepo = mockAreaRepository();
+  areaEvents = mockAreaEventRepository();
 
   const deps: AppDeps = {
     areaRepo,
+    areaEvents,
     users: { listUserIds: async () => ['AB', 'CD'] },
     recompute: async () => ({ locations: 10, before: 2, after: 4 }),
     logger: new ConsoleLogger(),
@@ -49,6 +53,8 @@ beforeEach(() => {
   areaRepo.healthCheck.mockClear();
   areaRepo.addArea.mockClear();
   areaRepo.removeArea.mockClear();
+  areaEvents.listAreaEvents.mockReset();
+  areaEvents.listAreaEvents.mockImplementation(() => Promise.resolve([]));
 });
 
 describe('GET /', () => {
@@ -74,6 +80,78 @@ describe('GET /', () => {
 
     expect(html).toContain('id="draw-form"');
     expect(polledRegion).not.toContain('id="draw-form"');
+  });
+});
+
+describe('GET /fragments/events', () => {
+  const entered: GeofenceEvent = {
+    _type: 'area.entered',
+    userId: 'AB',
+    areaId: 'home-id',
+    areaName: 'Home',
+    lat: 42.36,
+    lon: -71.06,
+    tst: 1_700_000_000,
+  };
+
+  const readEventsData = (html: string) =>
+    JSON.parse(
+      html.match(/<script type="application\/json" id="events-data">(.*?)<\/script>/s)![1]!,
+    );
+
+  test('the page polls the events fragment with the selected user', async () => {
+    const html = await fetch(`${baseUrl}/`).then((res) => res.text());
+
+    expect(html).toContain('hx-get="/fragments/events"');
+    expect(html).toContain('hx-include="#events-filter"');
+  });
+
+  test("lists the selected user's events and embeds them for the map", async () => {
+    areaEvents.listAreaEvents.mockImplementation(() =>
+      Promise.resolve([{ ...entered, _type: 'area.exited', tst: 1_700_000_600 }, entered]),
+    );
+
+    const res = await fetch(`${baseUrl}/fragments/events?userId=AB`);
+    const html = await res.text();
+
+    expect(res.status).toBe(200);
+    expect(areaEvents.listAreaEvents).toHaveBeenCalledWith('AB', { limit: 100 });
+    expect(html).toContain('Exited');
+    expect(html).toContain('Entered');
+    expect(html).toContain('<time datetime="2023-11-14T22:13:20.000Z">');
+    const view = readEventsData(html);
+    expect(view.userId).toBe('AB');
+    expect(view.featureCollection.features).toHaveLength(2);
+  });
+
+  test('escapes area names in the list and the embedded JSON', async () => {
+    areaEvents.listAreaEvents.mockImplementation(() =>
+      Promise.resolve([{ ...entered, areaName: '</script><img src=x onerror=alert(1)>' }]),
+    );
+
+    const html = await fetch(`${baseUrl}/fragments/events?userId=AB`).then((res) => res.text());
+
+    expect(html).not.toContain('<img');
+    expect(readEventsData(html).rows[0].areaLabel).toBe('</script><img src=x onerror=alert(1)>');
+  });
+
+  test('prompts for a user and clears the map when none is selected', async () => {
+    const html = await fetch(`${baseUrl}/fragments/events?userId=`).then((res) => res.text());
+
+    expect(html).toContain('Select a user');
+    expect(readEventsData(html)).toBeNull();
+    expect(areaEvents.listAreaEvents).not.toHaveBeenCalled();
+  });
+
+  test('shows a retry message without map data when the store fails', async () => {
+    areaEvents.listAreaEvents.mockImplementation(() => Promise.reject(new Error('down')));
+
+    const res = await fetch(`${baseUrl}/fragments/events?userId=AB`);
+    const html = await res.text();
+
+    expect(res.status).toBe(503);
+    expect(html).toContain('Could not load events');
+    expect(html).not.toContain('events-data');
   });
 });
 

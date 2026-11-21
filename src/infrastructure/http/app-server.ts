@@ -2,9 +2,11 @@ import express from 'express';
 import escapeHtml from 'escape-html';
 import { dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { buildAreaEventView, type AreaEventView } from '@/application/build-area-event-view.ts';
 import { buildAreaMapView, type AreaMapView } from '@/application/build-area-map-view.ts';
 import { CreateAreaSchema } from '@/domain/schemas.ts';
 import type {
+  AreaEventRepository,
   AreaRepository,
   Logger,
   MetricsCollector,
@@ -20,6 +22,7 @@ export interface AppDeps {
   users: TrackedUserRepository;
   recompute?: (userId: string) => Promise<{ locations: number; before: number; after: number }>;
   areaRepo: AreaRepository;
+  areaEvents: AreaEventRepository;
   logger: Logger;
   metrics: MetricsCollector;
 }
@@ -76,6 +79,52 @@ function renderAreasError(): string {
   return `<p class="legend-error">Could not reach the area store. Retrying…</p>`;
 }
 
+/** How many of the selected user's most recent events the panel shows. */
+const EVENT_LIST_LIMIT = 100;
+
+function renderEventsFragment(view: AreaEventView): string {
+  const rows = view.rows
+    .map(
+      (row) => `
+      <li class="event-row event-${row.kind}">
+        <button type="button" class="event-locate" data-lon="${row.lon}" data-lat="${row.lat}">
+          <span class="event-kind">${row.kind === 'entered' ? 'Entered' : 'Exited'}</span>
+          <span class="event-area">${escapeHtml(row.areaLabel)}</span>
+          <time datetime="${row.isoTime}">${row.isoTime}</time>
+        </button>
+      </li>`,
+    )
+    .join('');
+
+  const emptyState =
+    view.rows.length === 0 ? '<p class="events-empty">No events for this user yet.</p>' : '';
+
+  return `
+    ${emptyState}
+    <ol class="event-list">${rows}</ol>
+    <script type="application/json" id="events-data">${escapeJsonForScript(view)}</script>
+  `;
+}
+
+/**
+ * Shown before a user is chosen. Carries an empty `events-data` block so the map
+ * drops the previous user's points instead of leaving them behind.
+ */
+function renderEventsPrompt(): string {
+  return `
+    <p class="events-empty">Select a user to see their events.</p>
+    <script type="application/json" id="events-data">null</script>
+  `;
+}
+
+/**
+ * Like the areas error, it carries no `events-data` block, so the map keeps the
+ * points it last rendered until the next poll succeeds.
+ */
+function renderEventsError(): string {
+  return `<p class="legend-error">Could not load events. Retrying…</p>`;
+}
+
 /**
  * Out-of-band element carrying the draw form's error text. Sent alongside the
  * legend so a rejected area reports itself without blanking the sidebar; empty
@@ -122,13 +171,27 @@ function renderPage(): string {
         element every ${REFRESH_INTERVAL}, which would discard half-typed input.
       -->
       <section>
-        <form hx-post="/users/recompute" hx-target="#recompute-result" hx-confirm="Replace this user's event history using current areas?" hx-disabled-elt="find button">
+        <form id="recompute-form" hx-post="/users/recompute" hx-target="#recompute-result" hx-confirm="Replace this user's event history using current areas?" hx-disabled-elt="find button">
           <label>User <select name="userId" required data-user-select disabled><option value="">Loading users…</option></select></label>
           <button type="submit" data-user-submit disabled>Recompute events</button>
           <span class="htmx-indicator">Recomputing…</span>
         </form>
         <p id="user-status" role="status"></p>
         <p id="recompute-result" role="status"></p>
+      </section>
+      <section id="events-panel">
+        <h2>Events</h2>
+        <form id="events-filter">
+          <label>User <select name="userId" data-user-select disabled><option value="">Loading users…</option></select></label>
+        </form>
+        <!-- Refreshed when the user changes, after a recompute, and on the same poll as the areas. -->
+        <div
+          id="events"
+          hx-get="/fragments/events"
+          hx-include="#events-filter"
+          hx-trigger="load, change from:#events-filter, refresh, every ${REFRESH_INTERVAL}"
+          hx-swap="innerHTML"
+        ></div>
       </section>
       <section id="draw-panel">
         <button type="button" id="draw-start">Add area</button>
@@ -215,6 +278,26 @@ export function createAppServer(deps: AppDeps) {
 
   app.get('/fragments/areas', async (_req, res) => {
     await sendAreasFragment(res);
+  });
+
+  app.get('/fragments/events', async (req, res) => {
+    const userId = req.query.userId;
+    if (typeof userId !== 'string' || !userId.trim()) {
+      res.type('html').send(renderEventsPrompt());
+      return;
+    }
+    if (userId.length > 64) {
+      res.status(422).type('html').send('<p class="legend-error">Unknown user.</p>');
+      return;
+    }
+
+    try {
+      const events = await deps.areaEvents.listAreaEvents(userId, { limit: EVENT_LIST_LIMIT });
+      res.type('html').send(renderEventsFragment(buildAreaEventView(userId, events)));
+    } catch (error) {
+      deps.logger.error('Failed to load events', error);
+      res.status(503).type('html').send(renderEventsError());
+    }
   });
 
   app.get('/users', async (_req, res) => {

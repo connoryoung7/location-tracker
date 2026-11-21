@@ -8,9 +8,20 @@ import type {
   WaypointPayload,
 } from '@/domain/types.ts';
 import type { GeofenceEvent } from '@/domain/events.ts';
-import type { LocationRepository, TrackedUserRepository } from '@/domain/ports.ts';
+import type {
+  AreaEventRepository,
+  LocationRepository,
+  TrackedUserRepository,
+} from '@/domain/ports.ts';
+import {
+  DEFAULT_AREA_EVENT_LIMIT,
+  toGeofenceEvent,
+  type AreaEventRow,
+} from '@/repository/location-repository/area-event-row.ts';
 
-export class PostgresLocationRepository implements LocationRepository, TrackedUserRepository {
+export class PostgresLocationRepository
+  implements LocationRepository, TrackedUserRepository, AreaEventRepository
+{
   private pool: SQL;
   private transaction = new AsyncLocalStorage<TransactionSQL>();
 
@@ -208,6 +219,8 @@ export class PostgresLocationRepository implements LocationRepository, TrackedUs
         created_at TIMESTAMPTZ DEFAULT NOW()
       )
     `;
+    await this
+      .conn`CREATE INDEX IF NOT EXISTS area_events_user_id_tst_idx ON area_events (user_id, tst)`;
   }
 
   async saveAreaEvent(event: GeofenceEvent): Promise<void> {
@@ -276,6 +289,16 @@ export class PostgresLocationRepository implements LocationRepository, TrackedUs
     };
     const transaction = this.transaction.getStore();
     return transaction ? transaction.savepoint(replace) : this.pool.begin(replace);
+  }
+
+  async listAreaEvents(
+    userId: string,
+    { limit = DEFAULT_AREA_EVENT_LIMIT }: { limit?: number } = {},
+  ): Promise<GeofenceEvent[]> {
+    const rows: AreaEventRow[] = await this.conn`
+      SELECT type, user_id, area_id, area_name, lat, lon, tst FROM area_events
+      WHERE user_id = ${userId} ORDER BY tst DESC, id DESC LIMIT ${limit}`;
+    return rows.map(toGeofenceEvent);
   }
 
   async listUserIds(): Promise<string[]> {

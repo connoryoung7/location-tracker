@@ -41,6 +41,19 @@ describe.skipIf(!url)('Postgres replay crash recovery', () => {
     await sql.close();
   });
 
+  test("lists one user's area events newest first, up to the limit", async () => {
+    await repo.saveAreaEvent(event);
+    await repo.saveAreaEvent({ ...event, _type: 'area.exited', areaName: 'Home', tst: 3 });
+    await repo.saveAreaEvent({ ...event, tst: 2 });
+    await repo.saveAreaEvent({ ...event, userId: 'v', tst: 4 });
+
+    expect(await repo.listAreaEvents('u', { limit: 2 })).toEqual([
+      { ...event, _type: 'area.exited', areaName: 'Home', tst: 3 },
+      { ...event, tst: 2 },
+    ]);
+    expect(await repo.listAreaEvents('u')).toHaveLength(3);
+  });
+
   test('replacement and replay state roll back together on failure', async () => {
     await repo.saveAreaEvent(event);
     await expect(

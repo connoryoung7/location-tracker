@@ -223,3 +223,80 @@ button:disabled {
   opacity: 0.5;
   cursor: default;
 }
+
+#events-panel {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}
+
+#events-panel h2 {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+}
+
+#events-filter label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.875rem;
+  margin-bottom: 0.5rem;
+}
+
+.events-empty {
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+
+.event-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 40vh;
+  overflow-y: auto;
+}
+
+.event-locate {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0 0.5rem;
+  width: 100%;
+  padding: 0.375rem 0.25rem 0.375rem 0.5rem;
+  border: 0;
+  border-left: 3px solid var(--event-color);
+  background: none;
+  font: inherit;
+  font-size: 0.875rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.event-locate:hover {
+  background: #f0f0f1;
+}
+
+.event-entered {
+  --event-color: #16a34a;
+}
+
+.event-exited {
+  --event-color: #dc2626;
+}
+
+.event-kind {
+  color: var(--event-color);
+  font-weight: 600;
+}
+
+.event-area {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.event-locate time {
+  grid-column: 1 / -1;
+  color: var(--muted);
+  font-size: 0.8125rem;
+  font-variant-numeric: tabular-nums;
+}

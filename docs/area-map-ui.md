@@ -29,6 +29,7 @@ config schema up front. The map UI never uses the key itself.
 | -------------------------------- | ------------------------------------------------------- |
 | `GET /`                          | The page shell: legend sidebar, draw panel, map         |
 | `GET /fragments/areas`           | HTMX fragment — legend markup plus the areas as GeoJSON |
+| `GET /fragments/events?userId=`  | HTMX fragment — a user's latest area events plus points |
 | `POST /areas`                    | Create an area; the server assigns its `id`             |
 | `DELETE /areas/:userId/:areaId`  | Delete an area                                          |
 | `GET /users`                     | Known tracker IDs and area owners for the dropdowns     |
@@ -154,6 +155,20 @@ overwrite an existing area by posting a known one.
 HTMX and MapLibre are served from the app itself, so no CDN is required. The
 basemap tiles do come from `tile.openstreetmap.org`, so without internet access from
 the **browser** the area circles still render, but over a blank background.
+
+## Viewing events
+
+The Events panel lists the selected user's 100 most recent `area.entered` and
+`area.exited` events, newest first, and plots each one on the map as a green
+(entered) or red (exited) point. It uses the same pattern as the areas: the
+`/fragments/events` response carries the list markup and an `events-data` JSON
+block, and `public/app.js` pushes that block into a MapLibre source.
+
+The panel reloads when its User dropdown changes, after a successful recompute,
+and on the 30-second poll. The map frames a user's events once, when that user
+is first selected, so a poll never moves the view. Click a list row to fly to
+that event, or a point to see its area and time. Times are rendered in UTC by
+the server and converted to the viewer's local time in the browser.
 
 ## Recomputing event history
 
