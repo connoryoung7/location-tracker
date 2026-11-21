@@ -83,6 +83,63 @@ describe('GET /', () => {
   });
 });
 
+describe('GET /fragments/area-list', () => {
+  test('the page has a list button and a dialog that loads the list', async () => {
+    const html = await fetch(`${baseUrl}/`).then((res) => res.text());
+
+    expect(html).toContain('id="area-list-open"');
+    expect(html).toContain('<dialog id="area-list-dialog"');
+    expect(html).toContain('hx-get="/fragments/area-list"');
+  });
+
+  test('lists every area with its user, centre, radius, and actions', async () => {
+    areaRepo.listAllAreas.mockImplementationOnce(() =>
+      Promise.resolve([
+        buildArea({ id: 'w', userId: 'CD', name: 'Work', radius: 80.4 }),
+        buildArea({ id: 'h', userId: 'AB', name: 'Home', lat: 42.3601, lon: -71.0589 }),
+      ]),
+    );
+
+    const res = await fetch(`${baseUrl}/fragments/area-list`);
+    const html = await res.text();
+
+    expect(res.status).toBe(200);
+    expect(html).toContain('2 areas');
+    expect(html.indexOf('Home')).toBeLessThan(html.indexOf('Work'));
+    expect(html).toContain('42.36010, -71.05890');
+    expect(html).toContain('80 m');
+    expect(html).toContain('hx-delete="/areas/AB/h"');
+    expect(html).toContain('class="area-list-show" data-bounds="[');
+  });
+
+  test('escapes area names and user IDs', async () => {
+    areaRepo.listAllAreas.mockImplementationOnce(() =>
+      Promise.resolve([buildArea({ name: '<img src=x onerror=alert(1)>', userId: '"><b>' })]),
+    );
+
+    const html = await fetch(`${baseUrl}/fragments/area-list`).then((res) => res.text());
+
+    expect(html).not.toContain('<img');
+    expect(html).not.toContain('<b>');
+    expect(html).toContain('hx-delete="/areas/%22%3E%3Cb%3E/area-1"');
+  });
+
+  test('says so when there are no areas', async () => {
+    const html = await fetch(`${baseUrl}/fragments/area-list`).then((res) => res.text());
+
+    expect(html).toContain('No areas defined yet.');
+  });
+
+  test('shows a retry message when the store fails', async () => {
+    areaRepo.listAllAreas.mockRejectedValueOnce(new Error('down'));
+
+    const res = await fetch(`${baseUrl}/fragments/area-list`);
+
+    expect(res.status).toBe(503);
+    expect(await res.text()).toContain('Could not reach the area store');
+  });
+});
+
 describe('GET /fragments/events', () => {
   const entered: GeofenceEvent = {
     _type: 'area.entered',

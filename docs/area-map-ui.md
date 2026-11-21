@@ -29,6 +29,7 @@ config schema up front. The map UI never uses the key itself.
 | -------------------------------- | ------------------------------------------------------- |
 | `GET /`                          | The page shell: legend sidebar, draw panel, map         |
 | `GET /fragments/areas`           | HTMX fragment — legend markup plus the areas as GeoJSON |
+| `GET /fragments/area-list`       | HTMX fragment — every area as a table for the modal     |
 | `GET /fragments/events?userId=`  | HTMX fragment — a user's latest area events plus points |
 | `POST /areas`                    | Create an area; the server assigns its `id`             |
 | `DELETE /areas/:userId/:areaId`  | Delete an area                                          |
@@ -155,6 +156,14 @@ overwrite an existing area by posting a known one.
 HTMX and MapLibre are served from the app itself, so no CDN is required. The
 basemap tiles do come from `tile.openstreetmap.org`, so without internet access from
 the **browser** the area circles still render, but over a blank background.
+
+## Listing areas
+
+**List areas**, beside the sidebar heading, opens a modal table of every area:
+name, user (with their map color), centre, and radius, grouped by user and then
+sorted by name. The table is fetched each time the modal opens. **Show** closes
+the modal and zooms the map to that area's circle. **Delete** asks for
+confirmation, then refreshes the legend, the map, and the table together.
 
 ## Viewing events
 

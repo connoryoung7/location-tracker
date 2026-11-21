@@ -300,3 +300,132 @@ button:disabled {
   font-size: 0.8125rem;
   font-variant-numeric: tabular-nums;
 }
+
+.legend-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+#legend .legend-header h1 {
+  margin: 0;
+}
+
+.legend-header button,
+.area-list button {
+  font: inherit;
+  font-size: 0.875rem;
+  padding: 0.25rem 0.625rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: #fff;
+  cursor: pointer;
+}
+
+#area-list-dialog {
+  width: min(720px, calc(100vw - 2rem));
+  max-height: calc(100vh - 4rem);
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: inherit;
+  background: #fff;
+}
+
+#area-list-dialog::backdrop {
+  background: rgb(0 0 0 / 0.35);
+}
+
+.dialog-header {
+  position: sticky;
+  top: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--border);
+  background: #fff;
+}
+
+.dialog-header h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.dialog-header button {
+  font-size: 1.25rem;
+  line-height: 1;
+  padding: 0.125rem 0.5rem;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+
+#area-list {
+  padding: 0.75rem 1rem 1rem;
+  overflow-x: auto;
+}
+
+.area-list-count {
+  margin: 0 0 0.5rem;
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+
+.area-list {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.area-list th,
+.area-list td {
+  padding: 0.375rem 0.5rem;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.area-list thead th {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.area-list-name {
+  max-width: 16rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.area-list-user {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.area-list-number {
+  font-variant-numeric: tabular-nums;
+}
+
+.area-list-actions {
+  display: flex;
+  gap: 0.375rem;
+  justify-content: flex-end;
+}
+
+.area-list .area-list-delete {
+  color: #b91c1c;
+  border-color: #fecaca;
+  background: #fef2f2;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}

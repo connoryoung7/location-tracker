@@ -191,6 +191,32 @@ document.getElementById('events').addEventListener('click', (event) => {
   });
 });
 
+// --- Areas list dialog ------------------------------------------------------
+
+const areaListDialog = document.getElementById('area-list-dialog');
+
+document.getElementById('area-list-open').addEventListener('click', () => {
+  areaListDialog.showModal();
+  window.htmx?.trigger('#area-list', 'refresh');
+});
+
+document.getElementById('area-list').addEventListener('click', (event) => {
+  const button = event.target.closest('.area-list-show');
+  if (!button) {
+    return;
+  }
+
+  areaListDialog.close();
+  map.fitBounds(JSON.parse(button.dataset.bounds), { padding: 60, maxZoom: 17 });
+});
+
+// A delete from the list refreshes #areas (and so the map); reload the list too.
+document.body.addEventListener('htmx:afterRequest', (event) => {
+  if (event.detail.elt.classList?.contains('area-list-delete') && event.detail.successful) {
+    window.htmx?.trigger('#area-list', 'refresh');
+  }
+});
+
 // Recompute replaces the user's history, so reload the list once it succeeds.
 document.body.addEventListener('htmx:afterRequest', (event) => {
   if (event.detail.elt.id === 'recompute-form' && event.detail.successful) {

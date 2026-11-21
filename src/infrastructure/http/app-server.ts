@@ -3,6 +3,7 @@ import escapeHtml from 'escape-html';
 import { dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { buildAreaEventView, type AreaEventView } from '@/application/build-area-event-view.ts';
+import { buildAreaListView, type AreaListView } from '@/application/build-area-list-view.ts';
 import { buildAreaMapView, type AreaMapView } from '@/application/build-area-map-view.ts';
 import { CreateAreaSchema } from '@/domain/schemas.ts';
 import type {
@@ -77,6 +78,54 @@ function renderAreasFragment(view: AreaMapView): string {
  */
 function renderAreasError(): string {
   return `<p class="legend-error">Could not reach the area store. Retrying…</p>`;
+}
+
+function formatCoordinate(value: number): string {
+  return value.toFixed(5);
+}
+
+function renderAreaListFragment(view: AreaListView): string {
+  if (view.rows.length === 0) {
+    return '<p class="legend-empty">No areas defined yet.</p>';
+  }
+
+  const rows = view.rows
+    .map(
+      (row) => `
+        <tr>
+          <th scope="row" class="area-list-name">${escapeHtml(row.name)}</th>
+          <td>
+            <span class="area-list-user">
+              <span class="legend-swatch" style="background:${escapeHtml(row.color)}"></span>
+              ${escapeHtml(row.userId)}
+            </span>
+          </td>
+          <td class="area-list-number">${formatCoordinate(row.lat)}, ${formatCoordinate(row.lon)}</td>
+          <td class="area-list-number">${Math.round(row.radius)} m</td>
+          <td class="area-list-actions">
+            <button type="button" class="area-list-show" data-bounds="${escapeHtml(JSON.stringify(row.bounds))}">Show</button>
+            <button
+              type="button"
+              class="area-list-delete"
+              hx-delete="/areas/${encodeURIComponent(row.userId)}/${encodeURIComponent(row.areaId)}"
+              hx-target="#areas"
+              hx-swap="innerHTML"
+              hx-confirm="${escapeHtml(`Delete "${row.name}"?`)}"
+            >Delete</button>
+          </td>
+        </tr>`,
+    )
+    .join('');
+
+  return `
+    <p class="area-list-count">${view.rows.length} ${view.rows.length === 1 ? 'area' : 'areas'}</p>
+    <table class="area-list">
+      <thead>
+        <tr><th scope="col">Name</th><th scope="col">User</th><th scope="col">Centre</th><th scope="col">Radius</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+  `;
 }
 
 /** How many of the selected user's most recent events the panel shows. */
@@ -158,7 +207,10 @@ function renderPage(): string {
   </head>
   <body>
     <aside id="legend">
-      <h1>Areas</h1>
+      <div class="legend-header">
+        <h1>Areas</h1>
+        <button type="button" id="area-list-open">List areas</button>
+      </div>
       <div
         id="areas"
         hx-get="/fragments/areas"
@@ -229,6 +281,15 @@ function renderPage(): string {
       </section>
     </aside>
     <div id="map"></div>
+
+    <!-- Loaded each time it opens, so it never shows a stale copy of the poll. -->
+    <dialog id="area-list-dialog" aria-labelledby="area-list-title">
+      <header class="dialog-header">
+        <h2 id="area-list-title">All areas</h2>
+        <form method="dialog"><button type="submit" aria-label="Close">×</button></form>
+      </header>
+      <div id="area-list" hx-get="/fragments/area-list" hx-trigger="refresh" hx-swap="innerHTML"></div>
+    </dialog>
   </body>
 </html>`;
 }
@@ -278,6 +339,16 @@ export function createAppServer(deps: AppDeps) {
 
   app.get('/fragments/areas', async (_req, res) => {
     await sendAreasFragment(res);
+  });
+
+  app.get('/fragments/area-list', async (_req, res) => {
+    try {
+      const areas = await deps.areaRepo.listAllAreas();
+      res.type('html').send(renderAreaListFragment(buildAreaListView(areas)));
+    } catch (error) {
+      deps.logger.error('Failed to load the area list', error);
+      res.status(503).type('html').send(renderAreasError());
+    }
   });
 
   app.get('/fragments/events', async (req, res) => {
