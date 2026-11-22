@@ -52,6 +52,7 @@ describe('buildVisitedPlaceView', () => {
       durationLabel: '30 min',
       lastVisitIso: '2023-11-14T22:43:20.000Z',
       alternatives: [{ name: 'Corner Café', category: 'Café', distanceMeters: 42 }],
+      proposedArea: { name: 'Fresh Market', lat: 42.37, lon: -71.04, radius: 100 },
     });
   });
 
@@ -66,6 +67,32 @@ describe('buildVisitedPlaceView', () => {
 
     expect(view.rows[0]).toMatchObject({ label: 'Home', category: 'Saved area', alternatives: [] });
     expect(view.rows[0]!.note).toBeUndefined();
+    // Already an area, so there is nothing to propose.
+    expect(view.rows[0]!.proposedArea).toBeUndefined();
+  });
+
+  test('proposes an unnamed area for a place with nothing named nearby', () => {
+    const [row] = buildVisitedPlaceView('u', [place({ lookup: 'none' })]).rows;
+
+    expect(row!.proposedArea).toEqual({ name: '', lat: 42.37, lon: -71.04, radius: 100 });
+  });
+
+  test("proposes a circle wide enough for every visit's stop", () => {
+    const [visit] = place().visits;
+    const view = buildVisitedPlaceView('u', [
+      // 0.0003° of latitude is 33.4 m, so the farthest stop reaches 133.4 m out.
+      place({ visits: [visit!, { ...visit!, lat: 42.3703 }, { ...visit!, lon: -71.0401 }] }),
+    ]);
+
+    expect(view.rows[0]!.proposedArea!.radius).toBe(140);
+  });
+
+  test('rounds the proposed centre to about 0.1 m', () => {
+    const [row] = buildVisitedPlaceView('u', [
+      place({ lat: 42.360319375, lon: -71.05539999999999 }),
+    ]).rows;
+
+    expect(row!.proposedArea).toMatchObject({ lat: 42.360319, lon: -71.0554 });
   });
 
   test.each([

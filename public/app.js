@@ -110,8 +110,19 @@ map.on('load', () => {
 });
 
 // Registered after the load handler above, so place points draw over the areas.
-// `drawState` is declared further down; this only reads it once a click arrives.
-attachVisitedPlaces(map, { Popup, isDrawing: () => drawState !== 'idle' });
+// `drawState` and `areaForm` are declared further down; these only run once a click arrives.
+attachVisitedPlaces(map, {
+  Popup,
+  isDrawing: () => drawState !== 'idle',
+  proposeArea: (draft) => {
+    const proposal = areaForm.propose(draft);
+    map.flyTo({
+      center: [Number(draft.lon), Number(draft.lat)],
+      zoom: Math.max(map.getZoom(), 16),
+    });
+    return proposal;
+  },
+});
 
 function formatEventTime(isoTime) {
   return new Date(isoTime).toLocaleString();
@@ -243,7 +254,8 @@ map.on('click', 'areas-fill', (event) => {
   }
   // An event or place point inside the area opens its own popup instead.
   if (
-    map.queryRenderedFeatures(event.point, { layers: ['events-points', PLACES_LAYER_ID] }).length > 0
+    map.queryRenderedFeatures(event.point, { layers: ['events-points', PLACES_LAYER_ID] }).length >
+    0
   ) {
     return;
   }

@@ -338,6 +338,30 @@ describe('GET /fragments/places', () => {
     expect(view.featureCollection.features).toHaveLength(1);
   });
 
+  test('asks whether a place should become an area, with a draft to start from', async () => {
+    visitedPlaces.mockImplementation(async () => [grocery]);
+
+    const html = await fetch(`${baseUrl}/fragments/places?userId=AB`).then((res) => res.text());
+
+    expect(html).toContain('Make this a saved area?');
+    const button = html.match(/<button[^>]*class="place-save-area[^>]*>/)![0];
+    expect(button).toContain('data-user-id="AB"');
+    expect(button).toContain('data-name="Fresh Market"');
+    expect(button).toContain('data-lat="42.37" data-lon="-71.04"');
+    expect(button).toContain('data-radius="100"');
+  });
+
+  test('does not offer to save a place that is already an area', async () => {
+    visitedPlaces.mockImplementation(async () => [
+      { ...grocery, area: { id: 'shop', name: 'The shop' }, lookup: 'area' },
+    ]);
+
+    const html = await fetch(`${baseUrl}/fragments/places?userId=AB`).then((res) => res.text());
+
+    expect(html).toContain('The shop');
+    expect(html).not.toContain('place-save-area');
+  });
+
   test('reads only the chosen period, defaulting to 30 days', async () => {
     const now = Math.floor(Date.now() / 1000);
 
@@ -370,6 +394,7 @@ describe('GET /fragments/places', () => {
     const html = await fetch(`${baseUrl}/fragments/places?userId=AB`).then((res) => res.text());
 
     expect(html).not.toContain('<img');
+    expect(html).toContain('data-name="&lt;/script&gt;&lt;img');
     expect(readPlacesData(html).rows[0].label).toBe(hostile);
   });
 

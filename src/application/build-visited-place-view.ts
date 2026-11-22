@@ -1,4 +1,6 @@
+import { DEFAULT_VISIT_DETECTION_OPTIONS } from '@/application/detect-visits.ts';
 import type { PlaceLookupStatus, VisitedPlace } from '@/application/infer-visited-places.ts';
+import { distanceMeters } from '@/application/replay-geofence.ts';
 
 /** Another named place near a visited place: what the user might have been at instead. */
 export type VisitedPlaceAlternative = {
@@ -28,6 +30,19 @@ export type VisitedPlaceRow = {
   /** When the latest visit ended, ISO 8601 UTC; the browser shows it in local time. */
   lastVisitIso: string;
   alternatives: VisitedPlaceAlternative[];
+  /** A starting point for saving the place as an area. Absent when it already is one. */
+  proposedArea?: ProposedArea;
+};
+
+/** The area the UI offers to create for a visited place, centred on the place. */
+export type ProposedArea = {
+  /** The most likely nearby place's name, or empty when nothing named is nearby. */
+  name: string;
+  /** The place's centre, rounded to 6 decimal places (about 0.1 m). */
+  lat: number;
+  lon: number;
+  /** Metres, rounded up to the next 10. */
+  radius: number;
 };
 
 /** Visits added up by kind of place, so "6 grocery store visits" reads at a glance. */
@@ -90,6 +105,7 @@ export function buildVisitedPlaceView(userId: string, places: VisitedPlace[]): V
             category: other.category,
             distanceMeters: Math.round(other.distanceMeters),
           })),
+      ...(place.area ? {} : { proposedArea: proposeArea(place, likely?.name ?? '') }),
     };
   });
 
@@ -107,6 +123,25 @@ export function buildVisitedPlaceView(userId: string, places: VisitedPlace[]): V
     categories: summarizeCategories(rows),
     featureCollection: { type: 'FeatureCollection', features },
     bounds: boundsOf(rows),
+  };
+}
+
+/**
+ * A circle on the place, wide enough that every visit's stay circle fits
+ * inside, so the new area would have caught each of those visits. A visit is
+ * fixes within the stop radius of its own centre, and that centre can sit a
+ * little off the place's.
+ */
+function proposeArea(place: VisitedPlace, name: string): ProposedArea {
+  const farthestVisit = Math.max(
+    0,
+    ...place.visits.map((visit) => distanceMeters(place, visit.lat, visit.lon)),
+  );
+  return {
+    name,
+    lat: Number(place.lat.toFixed(6)),
+    lon: Number(place.lon.toFixed(6)),
+    radius: Math.ceil((farthestVisit + DEFAULT_VISIT_DETECTION_OPTIONS.radiusMeters) / 10) * 10,
   };
 }
 
