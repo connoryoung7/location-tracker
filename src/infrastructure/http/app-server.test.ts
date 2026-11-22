@@ -55,6 +55,7 @@ afterAll(() => {
 
 beforeEach(() => {
   areaRepo.listAllAreas.mockClear();
+  areaRepo.listAreas.mockClear();
   areaRepo.healthCheck.mockClear();
   areaRepo.addArea.mockClear();
   areaRepo.removeArea.mockClear();
@@ -90,6 +91,79 @@ describe('GET /', () => {
   });
 });
 
+describe('the page-wide user', () => {
+  /** The markup of one element, from its opening tag to the matching closing tag name. */
+  const elementHtml = (html: string, opening: string, closingTag: string) => {
+    const start = html.indexOf(opening);
+    return html.slice(start, html.indexOf(`</${closingTag}>`, start));
+  };
+
+  test('the page has exactly one user select, in the header', async () => {
+    const html = await fetch(`${baseUrl}/`).then((res) => res.text());
+
+    expect(html.match(/<select[^>]*name="userId"/g)).toHaveLength(1);
+    const header = elementHtml(html, '<header class="app-header">', 'header');
+    expect(header).toContain('<form id="user-scope"');
+    expect(header).toContain('id="user-select"');
+  });
+
+  test('every panel reads the user from the header instead of keeping its own', async () => {
+    const html = await fetch(`${baseUrl}/`).then((res) => res.text());
+
+    for (const opening of ['id="areas"', 'id="events"', 'id="area-list"']) {
+      const tag = html.slice(html.indexOf(opening), html.indexOf('>', html.indexOf(opening)));
+      expect(tag).toContain('hx-include="#user-scope"');
+      // A request still in flight for the previous user is cancelled, not shown.
+      expect(tag).toContain('hx-sync="this:replace"');
+    }
+    for (const opening of ['id="areas"', 'id="events"']) {
+      const tag = html.slice(html.indexOf(opening), html.indexOf('>', html.indexOf(opening)));
+      expect(tag).toContain('change from:#user-scope');
+    }
+    for (const form of ['<form id="recompute-form"', '<form id="places-form"']) {
+      const markup = elementHtml(html, form, 'form');
+      expect(markup).toContain('hx-include="#user-scope"');
+      expect(markup).not.toContain('name="userId"');
+    }
+    expect(elementHtml(html, '<form id="draw-form"', 'form')).not.toContain('name="userId"');
+  });
+
+  test('without ?user= the select waits, disabled, for the user poll', async () => {
+    const html = await fetch(`${baseUrl}/`).then((res) => res.text());
+
+    expect(html).toContain(
+      '<select id="user-select" name="userId" disabled><option value="">Loading users…</option></select>',
+    );
+  });
+
+  test('?user= preselects the user and keeps the select enabled for the first loads', async () => {
+    const html = await fetch(`${baseUrl}/?user=AB`).then((res) => res.text());
+
+    // htmx leaves disabled fields out of requests, so it must not be disabled.
+    expect(html).toContain(
+      '<select id="user-select" name="userId"><option value="AB" selected>AB</option></select>',
+    );
+  });
+
+  test('escapes ?user= and ignores one too long to be a user ID', async () => {
+    const hostile = await fetch(
+      `${baseUrl}/?user=${encodeURIComponent('"><img src=x onerror=alert(1)>')}`,
+    ).then((res) => res.text());
+    const tooLong = await fetch(`${baseUrl}/?user=${'x'.repeat(65)}`).then((res) => res.text());
+
+    expect(hostile).not.toContain('<img');
+    expect(hostile).toContain('value="&quot;&gt;&lt;img src=x onerror=alert(1)&gt;" selected');
+    expect(tooLong).toContain('<option value="">Loading users…</option>');
+  });
+
+  test('user actions start disabled until a user is selected', async () => {
+    const html = await fetch(`${baseUrl}/`).then((res) => res.text());
+
+    expect(html).toContain('<button type="button" id="draw-start" class="block" disabled>');
+    expect(html).toMatch(/id="area-list-open"[^>]*data-user-submit disabled/);
+  });
+});
+
 describe('GET /fragments/area-list', () => {
   test('the page has a list button and a dialog that loads the list', async () => {
     const html = await fetch(`${baseUrl}/`).then((res) => res.text());
@@ -99,49 +173,64 @@ describe('GET /fragments/area-list', () => {
     expect(html).toContain('hx-get="/fragments/area-list"');
   });
 
-  test('lists every area with its user, centre, radius, and actions', async () => {
-    areaRepo.listAllAreas.mockImplementationOnce(() =>
+  test("lists only the selected user's areas, with centre, radius, and actions", async () => {
+    areaRepo.listAreas.mockImplementationOnce(() =>
       Promise.resolve([
-        buildArea({ id: 'w', userId: 'CD', name: 'Work', radius: 80.4 }),
+        buildArea({ id: 'w', userId: 'AB', name: 'Work', radius: 80.4 }),
         buildArea({ id: 'h', userId: 'AB', name: 'Home', lat: 42.3601, lon: -71.0589 }),
       ]),
     );
 
-    const res = await fetch(`${baseUrl}/fragments/area-list`);
+    const res = await fetch(`${baseUrl}/fragments/area-list?userId=AB`);
     const html = await res.text();
 
     expect(res.status).toBe(200);
+    expect(areaRepo.listAreas).toHaveBeenCalledWith('AB');
+    expect(areaRepo.listAllAreas).not.toHaveBeenCalled();
     expect(html).toContain('2 areas');
     expect(html.indexOf('Home')).toBeLessThan(html.indexOf('Work'));
     expect(html).toContain('42.36010, -71.05890');
     expect(html).toContain('80 m');
     expect(html).toContain('hx-delete="/areas/AB/h"');
-    // The owner lets Show reveal a user hidden in the legend before zooming.
-    expect(html).toMatch(/class="area-list-show[^"]*" data-owner-id="AB" data-bounds="\[/);
+    // Every row is the same user, so the table no longer has a User column.
+    expect(html).not.toContain('<th scope="col">User</th>');
+    // Show only zooms: there are no hidden users left to reveal.
+    expect(html).toMatch(/class="area-list-show[^"]*" data-bounds="\[/);
   });
 
   test('escapes area names and user IDs', async () => {
-    areaRepo.listAllAreas.mockImplementationOnce(() =>
+    areaRepo.listAreas.mockImplementationOnce(() =>
       Promise.resolve([buildArea({ name: '<img src=x onerror=alert(1)>', userId: '"><b>' })]),
     );
 
-    const html = await fetch(`${baseUrl}/fragments/area-list`).then((res) => res.text());
+    const html = await fetch(
+      `${baseUrl}/fragments/area-list?userId=${encodeURIComponent('"><b>')}`,
+    ).then((res) => res.text());
 
     expect(html).not.toContain('<img');
     expect(html).not.toContain('<b>');
     expect(html).toContain('hx-delete="/areas/%22%3E%3Cb%3E/area-1"');
   });
 
-  test('says so when there are no areas', async () => {
-    const html = await fetch(`${baseUrl}/fragments/area-list`).then((res) => res.text());
+  test('says so when the user has no areas', async () => {
+    const html = await fetch(`${baseUrl}/fragments/area-list?userId=AB`).then((res) => res.text());
 
-    expect(html).toContain('No areas defined yet.');
+    expect(html).toContain('No areas for AB yet.');
+  });
+
+  test('prompts for a user before one is selected, and rejects an over-long ID', async () => {
+    const none = await fetch(`${baseUrl}/fragments/area-list?userId=`);
+    const tooLong = await fetch(`${baseUrl}/fragments/area-list?userId=${'x'.repeat(65)}`);
+
+    expect(await none.text()).toContain('Select a user above');
+    expect(tooLong.status).toBe(422);
+    expect(areaRepo.listAreas).not.toHaveBeenCalled();
   });
 
   test('shows a retry message when the store fails', async () => {
-    areaRepo.listAllAreas.mockRejectedValueOnce(new Error('down'));
+    areaRepo.listAreas.mockRejectedValueOnce(new Error('down'));
 
-    const res = await fetch(`${baseUrl}/fragments/area-list`);
+    const res = await fetch(`${baseUrl}/fragments/area-list?userId=AB`);
 
     expect(res.status).toBe(503);
     expect(await res.text()).toContain('Could not reach the area store');
@@ -168,7 +257,11 @@ describe('GET /fragments/events', () => {
     const html = await fetch(`${baseUrl}/`).then((res) => res.text());
 
     expect(html).toContain('hx-get="/fragments/events"');
-    expect(html).toContain('hx-include="#events-filter"');
+    const tag = html.slice(
+      html.indexOf('id="events"'),
+      html.indexOf('>', html.indexOf('id="events"')),
+    );
+    expect(tag).toContain('hx-include="#user-scope"');
   });
 
   test("lists the selected user's events and embeds them for the map", async () => {
@@ -189,11 +282,11 @@ describe('GET /fragments/events', () => {
     expect(view.featureCollection.features).toHaveLength(2);
   });
 
-  test('the events filter sends a time zone field with the user', async () => {
+  test('the page-wide user form sends a time zone field with the user', async () => {
     const html = await fetch(`${baseUrl}/`).then((res) => res.text());
-    const filter = html.slice(html.indexOf('<form id="events-filter">'));
+    const scope = html.slice(html.indexOf('<form id="user-scope"'));
 
-    expect(filter.slice(0, filter.indexOf('</form>'))).toContain('name="tz"');
+    expect(scope.slice(0, scope.indexOf('</form>'))).toContain('name="tz"');
   });
 
   test("groups events under headings for the viewer's days", async () => {
@@ -431,13 +524,14 @@ describe('POST /areas', () => {
       body: new URLSearchParams(fields).toString(),
     }) satisfies RequestInit;
 
-  test('creates an area from the draw form and returns the refreshed legend', async () => {
+  test("creates an area and returns that user's refreshed areas", async () => {
     const res = await fetch(
       `${baseUrl}/areas`,
       formBody({ userId: 'AB', name: 'Home', lat: '42.3601', lon: '-71.0589', radius: '250' }),
     );
 
     expect(res.status).toBe(200);
+    expect(areaRepo.listAreas).toHaveBeenCalledWith('AB');
     expect(areaRepo.addArea).toHaveBeenCalledTimes(1);
     expect(areaRepo.addArea.mock.calls[0]![0]).toMatchObject({
       userId: 'AB',
@@ -446,7 +540,7 @@ describe('POST /areas', () => {
       lon: -71.0589,
       radius: 250,
     });
-    // The response re-renders the legend so the sidebar and map stay in step.
+    // The response re-renders the areas so the sidebar and map stay in step.
     expect(await res.text()).toContain('areas-data');
   });
 
@@ -468,7 +562,7 @@ describe('POST /areas', () => {
     expect(created.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-/);
   });
 
-  test('rejects an out-of-range coordinate without clearing the legend', async () => {
+  test('rejects an out-of-range coordinate without clearing the areas panel', async () => {
     const res = await fetch(
       `${baseUrl}/areas`,
       formBody({ userId: 'AB', name: 'Home', lat: '999', lon: '-71.06', radius: '100' }),
@@ -478,10 +572,25 @@ describe('POST /areas', () => {
     expect(areaRepo.addArea).not.toHaveBeenCalled();
 
     const html = await res.text();
-    // Error arrives out-of-band alongside the legend, so the sidebar survives.
+    // Error arrives out-of-band alongside the areas, so the sidebar survives.
     expect(html).toContain('id="form-error"');
     expect(html).toContain('hx-swap-oob');
     expect(html).toContain('areas-data');
+    expect(areaRepo.listAreas).toHaveBeenCalledWith('AB');
+  });
+
+  test("rejects a missing user without reading anyone else's areas", async () => {
+    const res = await fetch(
+      `${baseUrl}/areas`,
+      formBody({ userId: '', name: 'Home', lat: '42.36', lon: '-71.06', radius: '100' }),
+    );
+
+    expect(res.status).toBe(422);
+    const html = await res.text();
+    expect(html).toContain('Select a user above');
+    expect(html).toContain('hx-swap-oob');
+    expect(areaRepo.listAreas).not.toHaveBeenCalled();
+    expect(areaRepo.listAllAreas).not.toHaveBeenCalled();
   });
 
   test('rejects a zero radius', async () => {
@@ -518,11 +627,12 @@ describe('POST /areas', () => {
 });
 
 describe('DELETE /areas/:userId/:areaId', () => {
-  test('removes the area and returns the refreshed legend', async () => {
+  test("removes the area and returns that user's refreshed areas", async () => {
     const res = await fetch(`${baseUrl}/areas/AB/a1`, { method: 'DELETE' });
 
     expect(res.status).toBe(200);
     expect(areaRepo.removeArea).toHaveBeenCalledWith('AB', 'a1');
+    expect(areaRepo.listAreas).toHaveBeenCalledWith('AB');
     expect(await res.text()).toContain('areas-data');
   });
 
@@ -536,37 +646,65 @@ describe('DELETE /areas/:userId/:areaId', () => {
 });
 
 describe('GET /fragments/areas', () => {
-  test('renders a legend row per user and embeds the GeoJSON', async () => {
-    areaRepo.listAllAreas.mockResolvedValueOnce([
+  const readAreasData = (html: string) =>
+    JSON.parse(html.match(/id="areas-data">(.*?)<\/script>/s)![1]!.replaceAll('\\u003c', '<'));
+
+  test("lists the selected user's areas and embeds their circles for the map", async () => {
+    areaRepo.listAreas.mockResolvedValueOnce([
       buildArea({ id: 'a1', userId: 'AB', name: 'Home' }),
-      buildArea({ id: 'a2', userId: 'AB', name: 'Gym' }),
-      buildArea({ id: 'b1', userId: 'CD', name: 'Work' }),
+      buildArea({ id: 'a2', userId: 'AB', name: 'Gym', radius: 40.4 }),
     ]);
 
-    const res = await fetch(`${baseUrl}/fragments/areas`);
+    const res = await fetch(`${baseUrl}/fragments/areas?userId=AB`);
     expect(res.status).toBe(200);
-    expect(areaRepo.listAllAreas).toHaveBeenCalledTimes(1);
+    expect(areaRepo.listAreas).toHaveBeenCalledWith('AB');
+    expect(areaRepo.listAllAreas).not.toHaveBeenCalled();
 
     const html = await res.text();
-    expect(html).toContain('data-user-id="AB"');
-    expect(html).toContain('data-user-id="CD"');
+    expect(html).toContain('2 areas');
+    // Sorted by name, and each one zooms the map to its circle.
+    expect(html.indexOf('Gym')).toBeLessThan(html.indexOf('Home'));
+    expect(html).toContain('40 m');
+    expect(html.match(/class="area-locate" data-bounds="\[/g)).toHaveLength(2);
+    // No per-user legend: there is only one user on the page.
+    expect(html).not.toContain('type="checkbox"');
 
-    const json = html.match(/id="areas-data">(.*?)<\/script>/s)?.[1];
-    const view = JSON.parse(json!);
-    expect(view.featureCollection.features).toHaveLength(3);
-    expect(view.legend).toHaveLength(2);
+    const view = readAreasData(html);
+    expect(view.userId).toBe('AB');
+    expect(view.featureCollection.features).toHaveLength(2);
+    expect(view.legend).toBeUndefined();
   });
 
-  test('shows an empty state when no areas are defined', async () => {
-    const res = await fetch(`${baseUrl}/fragments/areas`);
+  test('prompts for a user and clears the map when none is selected', async () => {
+    const html = await fetch(`${baseUrl}/fragments/areas?userId=`).then((res) => res.text());
 
-    expect(await res.text()).toContain('No areas defined yet.');
+    expect(html).toContain('Select a user above');
+    expect(readAreasData(html)).toEqual({
+      userId: '',
+      featureCollection: { type: 'FeatureCollection', features: [] },
+    });
+    expect(areaRepo.listAreas).not.toHaveBeenCalled();
+  });
+
+  test('rejects an over-long user ID without touching the map', async () => {
+    const res = await fetch(`${baseUrl}/fragments/areas?userId=${'x'.repeat(65)}`);
+
+    expect(res.status).toBe(422);
+    expect(await res.text()).not.toContain('areas-data');
+    expect(areaRepo.listAreas).not.toHaveBeenCalled();
+  });
+
+  test('shows an empty state when the user has no areas', async () => {
+    const html = await fetch(`${baseUrl}/fragments/areas?userId=AB`).then((res) => res.text());
+
+    expect(html).toContain('No areas for AB yet.');
+    expect(readAreasData(html).userId).toBe('AB');
   });
 
   test('degrades to a visible message when the area store is unreachable', async () => {
-    areaRepo.listAllAreas.mockRejectedValueOnce(new Error('Connection has failed'));
+    areaRepo.listAreas.mockRejectedValueOnce(new Error('Connection has failed'));
 
-    const res = await fetch(`${baseUrl}/fragments/areas`);
+    const res = await fetch(`${baseUrl}/fragments/areas?userId=AB`);
 
     expect(res.status).toBe(503);
 
@@ -577,27 +715,34 @@ describe('GET /fragments/areas', () => {
   });
 
   test('escapes area names and user IDs so they cannot inject markup', async () => {
-    areaRepo.listAllAreas.mockResolvedValueOnce([
-      buildArea({
-        id: 'x1',
-        userId: '<img src=x onerror=alert(1)>',
-        name: '</script><script>alert(2)</script>',
-      }),
+    const userId = '<img src=x onerror=alert(1)>';
+    areaRepo.listAreas.mockResolvedValueOnce([
+      buildArea({ id: 'x1', userId, name: '</script><script>alert(2)</script>' }),
     ]);
 
-    const html = await fetch(`${baseUrl}/fragments/areas`).then((res) => res.text());
+    const html = await fetch(
+      `${baseUrl}/fragments/areas?userId=${encodeURIComponent(userId)}`,
+    ).then((res) => res.text());
 
     expect(html).not.toContain('<img src=x');
-    expect(html).toContain('&lt;img src=x');
+    expect(html).toContain('&lt;/script&gt;');
     // The only <script> tag may be the data block itself.
     expect(html.match(/<script/g)).toHaveLength(1);
     expect(html).not.toContain('alert(2)</script>');
 
-    const json = html.match(/id="areas-data">(.*?)<\/script>/s)?.[1];
-    const view = JSON.parse(json!.replaceAll('\\u003c', '<'));
+    const view = readAreasData(html);
+    expect(view.userId).toBe(userId);
     expect(view.featureCollection.features[0].properties.name).toBe(
       '</script><script>alert(2)</script>',
     );
+  });
+
+  test("an empty state escapes the user's ID", async () => {
+    const html = await fetch(
+      `${baseUrl}/fragments/areas?userId=${encodeURIComponent('<b>AB</b>')}`,
+    ).then((res) => res.text());
+
+    expect(html).toContain('No areas for &lt;b&gt;AB&lt;/b&gt; yet.');
   });
 });
 
@@ -632,6 +777,16 @@ test('recompute form confirms and endpoint returns a result summary', async () =
   expect(await response.text()).toContain('10 locations. Events: 2 before, 4 after.');
 });
 
+test('recompute asks for a user when none is selected', async () => {
+  const response = await fetch(`${baseUrl}/users/recompute`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ userId: '' }),
+  });
+  expect(response.status).toBe(422);
+  expect(await response.text()).toBe('Select a user above.');
+});
+
 test('user options come from the tracked-user repository', async () => {
   expect(await (await fetch(`${baseUrl}/users`)).json()).toEqual(['AB', 'CD']);
 });
@@ -646,7 +801,7 @@ test('JSON confirmation returns success after saving without depending on a lege
   expect(((await response.json()) as { id: string }).id).toBe(
     areaRepo.addArea.mock.calls[0]![0].id,
   );
-  expect(areaRepo.listAllAreas).not.toHaveBeenCalled();
+  expect(areaRepo.listAreas).not.toHaveBeenCalled();
 });
 
 test('JSON confirmation rejects blank coordinates without persisting', async () => {

@@ -90,6 +90,7 @@ body {
   top: 0;
   z-index: 1;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--space-3);
   padding: var(--space-4);
@@ -117,6 +118,32 @@ body {
   margin: 0;
   font-size: var(--text-sm);
   color: var(--muted);
+}
+
+/* The page-wide user: its own row under the title, so it reads as "this page is about". */
+.pico .user-scope {
+  flex-basis: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+}
+
+.pico .user-scope label {
+  margin: 0;
+  font-weight: 600;
+}
+
+.pico .user-scope select {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+}
+
+.pico .app-header .user-status {
+  flex-basis: 100%;
+  margin: 0;
+  color: var(--pico-color);
 }
 
 .pico .panel {
@@ -156,39 +183,58 @@ body {
   width: 100%;
 }
 
-/* ---------- Areas legend ---------- */
+/* ---------- Areas panel ---------- */
 
-.pico .legend-list {
-  list-style: none;
+.pico .area-count {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+
+.pico .area-names {
+  max-height: 30vh;
   margin: 0;
   padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.125rem;
+  overflow-y: auto;
 }
 
-.pico .legend-list li {
+.pico .area-names li {
   list-style: none;
   margin: 0;
 }
 
-.pico .legend-row label {
+.pico .area-locate {
+  --pico-background-color: transparent;
+  --pico-border-color: transparent;
+  --pico-color: var(--pico-color);
   display: flex;
   align-items: center;
   gap: var(--space-2);
+  width: 100%;
   margin: 0;
   padding: var(--space-2);
   border-radius: var(--radius-sm);
-  cursor: pointer;
+  box-shadow: none;
+  font-size: var(--text-md);
+  text-align: left;
 }
 
-.pico .legend-row label:hover {
-  background: var(--surface-sunken);
+.pico .area-locate:is(:hover, :focus-visible) {
+  --pico-background-color: var(--surface-sunken);
 }
 
-.pico .legend-row input[type='checkbox'] {
-  margin: 0;
-  flex-shrink: 0;
+.area-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.area-radius {
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
 }
 
 .legend-swatch {
@@ -197,26 +243,6 @@ body {
   border-radius: 50%;
   flex-shrink: 0;
   box-shadow: 0 0 0 2px var(--surface-raised), 0 0 0 3px var(--border);
-}
-
-.legend-user {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.legend-count {
-  min-width: 1.5rem;
-  padding: 0 var(--space-2);
-  border-radius: 999px;
-  text-align: center;
-  font-size: var(--text-xs);
-  font-variant-numeric: tabular-nums;
-  line-height: 1.4rem;
-  color: var(--muted);
-  background: var(--surface-sunken);
 }
 
 .pico .legend-empty {
@@ -855,12 +881,6 @@ body {
   max-width: 16rem;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-.area-list-user {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
 }
 
 .area-list-number {

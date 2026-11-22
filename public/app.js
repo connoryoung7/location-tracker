@@ -1,5 +1,12 @@
 import { createDraftMarker } from '/static/draft-marker.js';
-import { createAreaForm, updateUserSelects } from '/static/area-form.js';
+import { createAreaForm } from '/static/area-form.js';
+import {
+  rememberUserSelection,
+  restoreUserSelection,
+  syncUserActions,
+  updateUserSelect,
+  watchUserScope,
+} from '/static/user-scope.js';
 import { attachVisitedPlaces, PLACES_LAYER_ID } from '/static/visited-places.js';
 // maplibre-gl v6 ships named ESM exports only — there is no default export.
 import {
@@ -42,15 +49,38 @@ const map = new MapLibreMap({
 map.addControl(new NavigationControl(), 'top-right');
 map.addControl(new ScaleControl());
 
+/** The page-wide user. Everything on the page shows or acts on this one user. */
+const userSelect = document.getElementById('user-select');
+
 /** Latest view from the server, held until the style finishes loading. */
 let pendingView = null;
 let isStyleLoaded = false;
-let hasFramedAreas = false;
 /** Latest events view, held until the style finishes loading. */
 let pendingEventsView = null;
-/** The user whose events were last framed, so a poll does not keep moving the map. */
-let framedEventsUserId = null;
-const hiddenUserIds = new Set();
+/**
+ * The user the map was last framed for. Each user is framed once, by whichever
+ * of their areas or events arrives first, so polls never move the view.
+ */
+let framedUserId = null;
+/** The open popup, closed when the user changes so it can't act on the previous user. */
+let activePopup = null;
+
+function showPopup(popup) {
+  activePopup?.remove();
+  activePopup = popup.addTo(map);
+  return activePopup;
+}
+
+function frameUserOnce(userId, bounds) {
+  if (!userId || !bounds || userId === framedUserId) {
+    return;
+  }
+
+  // Jump straight there on page load; animate only when switching users.
+  const isFirstFrame = framedUserId === null;
+  framedUserId = userId;
+  map.fitBounds(bounds, { padding: 60, maxZoom: 15, ...(isFirstFrame ? { duration: 0 } : {}) });
+}
 
 map.on('load', () => {
   map.addSource(SOURCE_ID, { type: 'geojson', data: EMPTY_COLLECTION });
@@ -111,7 +141,7 @@ map.on('load', () => {
 
 // Registered after the load handler above, so place points draw over the areas.
 // `drawState` and `areaForm` are declared further down; these only run once a click arrives.
-attachVisitedPlaces(map, {
+const visitedPlaces = attachVisitedPlaces(map, {
   Popup,
   isDrawing: () => drawState !== 'idle',
   proposeArea: (draft) => {
@@ -147,7 +177,7 @@ map.on('click', 'events-points', (event) => {
   label.textContent = `${kind === 'entered' ? 'Entered' : 'Exited'} ${areaLabel} · ${formatEventTime(isoTime)}`;
   container.append(label);
 
-  new Popup().setLngLat(feature.geometry.coordinates).setDOMContent(container).addTo(map);
+  showPopup(new Popup().setLngLat(feature.geometry.coordinates).setDOMContent(container));
 });
 
 map.on('mouseenter', 'events-points', () => {
@@ -164,15 +194,22 @@ function renderEvents(view) {
   }
 
   map.getSource(EVENTS_SOURCE_ID).setData(view ? view.featureCollection : EMPTY_COLLECTION);
+  frameUserOnce(view?.userId, view?.bounds);
+}
 
-  // Frame a user's events once, when they are first selected.
-  const userId = view?.userId ?? null;
-  if (userId !== framedEventsUserId) {
-    framedEventsUserId = userId;
-    if (view?.bounds) {
-      map.fitBounds(view.bounds, { padding: 60, maxZoom: 15 });
-    }
+/**
+ * A response that arrives after the user changed belongs to the previous user.
+ * Requests are synced per panel, but a delete or create answers into `#areas`
+ * from elsewhere; reload instead of showing the wrong user's data.
+ */
+function isForSelectedUser(view, target) {
+  const userId = view?.userId ?? '';
+  if (userId === userSelect.value) {
+    return true;
   }
+
+  window.htmx?.trigger(target, 'refresh');
+  return false;
 }
 
 function readSwappedEvents() {
@@ -181,13 +218,18 @@ function readSwappedEvents() {
     return;
   }
 
-  pendingEventsView = JSON.parse(dataElement.textContent);
-  renderEvents(pendingEventsView);
+  const view = JSON.parse(dataElement.textContent);
+  if (!isForSelectedUser(view, '#events')) {
+    return;
+  }
+
+  pendingEventsView = view;
+  renderEvents(view);
 }
 
 // The server groups events into days; send the viewer's zone so they are the viewer's days.
 // Runs before htmx's `load` trigger: module scripts execute before DOMContentLoaded.
-document.getElementById('events-tz').value = Intl.DateTimeFormat().resolvedOptions().timeZone;
+document.getElementById('user-scope-tz').value = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
 document.getElementById('events').addEventListener('click', (event) => {
   const button = event.target.closest('.event-locate');
@@ -206,6 +248,10 @@ document.getElementById('events').addEventListener('click', (event) => {
 const areaListDialog = document.getElementById('area-list-dialog');
 
 document.getElementById('area-list-open').addEventListener('click', () => {
+  // textContent: user IDs are untrusted.
+  document.getElementById('area-list-title').textContent = userSelect.value
+    ? `Areas for ${userSelect.value}`
+    : 'Areas';
   areaListDialog.showModal();
   window.htmx?.trigger('#area-list', 'refresh');
 });
@@ -223,13 +269,17 @@ document.getElementById('area-list').addEventListener('click', (event) => {
     return;
   }
 
-  // Zooming to an area whose owner is unchecked in the legend would show an
-  // empty map, so reveal that user first, as ticking their checkbox would.
-  hiddenUserIds.delete(button.dataset.ownerId);
-  applyUserFilter();
-  restoreLegendState();
-
   areaListDialog.close();
+  map.fitBounds(JSON.parse(button.dataset.bounds), { padding: 60, maxZoom: 17 });
+});
+
+// Each area in the Areas panel zooms the map to its circle.
+document.getElementById('areas').addEventListener('click', (event) => {
+  const button = event.target.closest('.area-locate');
+  if (!button) {
+    return;
+  }
+
   map.fitBounds(JSON.parse(button.dataset.bounds), { padding: 60, maxZoom: 17 });
 });
 
@@ -267,14 +317,14 @@ map.on('click', 'areas-fill', (event) => {
 
   const { name, userId, radius, areaId } = feature.properties;
 
-  // Built as DOM rather than an HTML string: area names and user IDs are
-  // untrusted, and textContent cannot be escaped wrong.
+  // Built as DOM rather than an HTML string: area names are untrusted, and
+  // textContent cannot be escaped wrong.
   const container = document.createElement('div');
   // Opts the popup into Pico's scoped styles; the map itself stays outside them.
   container.className = 'pico popup';
   const label = document.createElement('p');
   label.className = 'popup-label';
-  label.textContent = `${name} — ${userId} (${Math.round(radius)}m)`;
+  label.textContent = `${name} (${Math.round(radius)}m)`;
 
   const remove = document.createElement('button');
   remove.type = 'button';
@@ -290,7 +340,7 @@ map.on('click', 'areas-fill', (event) => {
 
   container.append(label, remove);
 
-  const popup = new Popup().setLngLat(event.lngLat).setDOMContent(container).addTo(map);
+  const popup = showPopup(new Popup().setLngLat(event.lngLat).setDOMContent(container));
   // The button was created after htmx scanned the page, so wire it up by hand.
   window.htmx?.process(container);
   // Closed once the request is actually sent: the confirm dialog is async, so
@@ -305,34 +355,14 @@ map.on('mouseleave', 'areas-fill', () => {
   map.getCanvas().style.cursor = '';
 });
 
-function applyUserFilter() {
-  if (!isStyleLoaded) {
-    return;
-  }
-
-  const filter =
-    hiddenUserIds.size === 0
-      ? null
-      : ['!', ['in', ['get', 'userId'], ['literal', [...hiddenUserIds]]]];
-
-  map.setFilter('areas-fill', filter);
-  map.setFilter('areas-outline', filter);
-}
-
 function render(view) {
   map.getSource(SOURCE_ID).setData(view.featureCollection);
-  applyUserFilter();
-
-  // Frame the areas once, on the first load that actually has some.
-  if (!hasFramedAreas && view.bounds) {
-    map.fitBounds(view.bounds, { padding: 60, maxZoom: 15, duration: 0 });
-    hasFramedAreas = true;
-  }
+  frameUserOnce(view.userId, view.bounds);
 }
 
 /**
  * HTMX delivers the areas as a JSON block inside the swapped fragment, so the
- * legend markup and the map data always come from the same response.
+ * panel markup and the map data always come from the same response.
  */
 function readSwappedView() {
   const dataElement = document.getElementById('areas-data');
@@ -341,22 +371,13 @@ function readSwappedView() {
   }
 
   const view = JSON.parse(dataElement.textContent);
-  pendingView = view;
+  if (!isForSelectedUser(view, '#areas')) {
+    return;
+  }
 
+  pendingView = view;
   if (isStyleLoaded) {
     render(view);
-  }
-}
-
-/**
- * The server renders every legend row as checked, so a poll would otherwise
- * show a hidden user as visible while the map still filtered them out. Which
- * users are hidden is client-side state, so it has to be reapplied after each
- * swap replaces the inputs.
- */
-function restoreLegendState() {
-  for (const input of document.querySelectorAll('#areas input[data-user-id]')) {
-    input.checked = !hiddenUserIds.has(input.dataset.userId);
   }
 }
 
@@ -366,27 +387,9 @@ document.body.addEventListener('htmx:afterSwap', (event) => {
     return;
   }
 
-  if (event.target.id !== 'areas') {
-    return;
+  if (event.target.id === 'areas') {
+    readSwappedView();
   }
-
-  readSwappedView();
-  restoreLegendState();
-});
-
-document.body.addEventListener('change', (event) => {
-  const userId = event.target.dataset?.userId;
-  if (userId === undefined) {
-    return;
-  }
-
-  if (event.target.checked) {
-    hiddenUserIds.delete(userId);
-  } else {
-    hiddenUserIds.add(userId);
-  }
-
-  applyUserFilter();
 });
 
 // --- Drawing a new area -----------------------------------------------------
@@ -492,7 +495,7 @@ const areaForm = createAreaForm(document, {
 });
 
 document.getElementById('draw-form').addEventListener('input', (event) => {
-  // Naming an area or selecting a user must not cancel pending map placement.
+  // Naming an area must not cancel pending map placement.
   if (['lat', 'lon', 'radius'].includes(event.target.name)) {
     drawState = 'editing';
     map.getCanvas().style.cursor = '';
@@ -503,20 +506,89 @@ document.getElementById('draw-form').addEventListener('submit', () => {
   map.getCanvas().style.cursor = drawState === 'placing' ? 'crosshair' : '';
 });
 
+// --- The page-wide user ------------------------------------------------------
+
+// Runs before htmx's `load` trigger, so the first fragment loads carry the user.
+const initialSelection = restoreUserSelection(document);
+rememberUserSelection(document, initialSelection.userId);
+syncUserActions(document, initialSelection.userId);
+updateTitle(initialSelection.userId);
+
+/** What the header's status line is currently saying, so a poll knows what it may clear. */
+let userNotice = null;
+let hasCheckedRequestedUser = false;
+
+function showUserNotice(kind, tone, message) {
+  userNotice = kind;
+  setNotice('user-status', tone, message);
+}
+
+function updateTitle(userId) {
+  document.title = userId ? `${userId} — Location Tracker` : 'Location Tracker';
+}
+
+watchUserScope(document, {
+  isDraftOpen: () => areaForm.isOpen(),
+  discardDraft: () => areaForm.discard(),
+  confirmSwitch: (next) =>
+    askToConfirm(`Switch to ${next || 'no user'}? The area you're drafting will be discarded.`),
+  onChange: (userId) => {
+    rememberUserSelection(document, userId);
+    syncUserActions(document, userId);
+    updateTitle(userId);
+    if (userNotice === 'unknown-user') showUserNotice(null, 'info', '');
+
+    // Nothing of the previous user's may stay on the map while the new user's
+    // panels load. Their fragments reload themselves via `change from:#user-scope`.
+    activePopup?.remove();
+    pendingView = null;
+    pendingEventsView = null;
+    if (isStyleLoaded) {
+      map.getSource(SOURCE_ID).setData(EMPTY_COLLECTION);
+      map.getSource(EVENTS_SOURCE_ID).setData(EMPTY_COLLECTION);
+    }
+    visitedPlaces.clear();
+    setNotice('recompute-result', 'info', '');
+  },
+});
+
 // User polling updates only options; it never replaces draft fields or review.
 async function refreshUsers() {
   try {
     const response = await fetch('/users');
     if (!response.ok) throw new Error('Could not load users. Retrying…');
     const users = await response.json();
-    updateUserSelects(document, users);
-    setNotice(
-      'user-status',
-      'info',
-      users.length ? '' : 'No tracked users yet. Send a location to get started.',
-    );
+    // The first poll is where an unknown `?user=` is found out; fall back to the
+    // user remembered in this browser before the sole user or the placeholder.
+    updateUserSelect(document, users, {
+      fallback: hasCheckedRequestedUser ? '' : initialSelection.remembered,
+    });
+    syncUserActions(document, userSelect.value);
+
+    if (!hasCheckedRequestedUser) {
+      hasCheckedRequestedUser = true;
+      // A user named in the URL who doesn't exist is worth saying so; a stale
+      // remembered one is just replaced.
+      const requested = initialSelection.source === 'url' ? initialSelection.userId : '';
+      if (requested && !users.includes(requested)) {
+        showUserNotice(
+          'unknown-user',
+          'error',
+          `There's no tracked user “${requested}”. ${
+            userSelect.value ? `Showing ${userSelect.value} instead.` : 'Select a user to continue.'
+          }`,
+        );
+        return;
+      }
+    }
+
+    if (users.length === 0) {
+      showUserNotice('no-users', 'info', 'No tracked users yet. Send a location to get started.');
+    } else if (userNotice === 'no-users' || userNotice === 'poll-error') {
+      showUserNotice(null, 'info', '');
+    }
   } catch (error) {
-    setNotice('user-status', 'error', error.message);
+    showUserNotice('poll-error', 'error', error.message);
   }
 }
 refreshUsers();
@@ -577,27 +649,44 @@ document.body.addEventListener('htmx:afterSwap', (event) => {
 });
 
 /**
- * Replaces the browser's native `confirm()` for every `hx-confirm` with a
- * styled dialog. htmx waits until `issueRequest` is called, so cancelling (the
- * button, Escape, or a backdrop click) simply never sends the request.
+ * A styled replacement for the browser's native `confirm()`, used for every
+ * `hx-confirm` and for questions the page asks itself. Cancelling (the button,
+ * Escape, or a backdrop click) runs `onDismiss`; htmx then never sends its request.
  */
 const confirmDialog = document.getElementById('confirm-dialog');
 let pendingConfirm = null;
 
+function openConfirm(question, onAccept, onDismiss = () => {}) {
+  pendingConfirm = { onAccept, onDismiss };
+  document.getElementById('confirm-message').textContent = question;
+  confirmDialog.showModal();
+  document.getElementById('confirm-accept').focus();
+}
+
+/** Resolves true if the question is confirmed, false if it is dismissed. */
+function askToConfirm(question) {
+  return new Promise((resolve) => {
+    openConfirm(
+      question,
+      () => resolve(true),
+      () => resolve(false),
+    );
+  });
+}
+
 document.body.addEventListener('htmx:confirm', (event) => {
   if (!event.detail.question) return;
   event.preventDefault();
-  pendingConfirm = event.detail;
-  document.getElementById('confirm-message').textContent = event.detail.question;
-  confirmDialog.showModal();
-  document.getElementById('confirm-accept').focus();
+  const { detail } = event;
+  openConfirm(detail.question, () => detail.issueRequest(true));
 });
 
 document.getElementById('confirm-accept').addEventListener('click', () => {
-  const detail = pendingConfirm;
+  const pending = pendingConfirm;
+  // Cleared first, so the close handler below doesn't treat this as a dismissal.
   pendingConfirm = null;
   confirmDialog.close();
-  detail?.issueRequest(true);
+  pending?.onAccept();
 });
 
 document.getElementById('confirm-cancel').addEventListener('click', () => confirmDialog.close());
@@ -607,5 +696,7 @@ confirmDialog.addEventListener('click', (event) => {
 });
 
 confirmDialog.addEventListener('close', () => {
+  const pending = pendingConfirm;
   pendingConfirm = null;
+  pending?.onDismiss();
 });

@@ -73,7 +73,7 @@ function setup({ isDrawing = false, isSaved = true } = {}) {
     }
   }
   const proposeArea = mock(async (_draft: Record<string, string | number>) => isSaved);
-  attachVisitedPlaces(map, {
+  const places = attachVisitedPlaces(map, {
     Popup: MockPopup,
     isDrawing: () => isDrawing,
     proposeArea,
@@ -115,6 +115,7 @@ function setup({ isDrawing = false, isSaved = true } = {}) {
     flush,
     rendered,
     clickPoint,
+    places,
   };
 }
 
@@ -335,5 +336,26 @@ describe('attachVisitedPlaces', () => {
     clickPoint('place-1', oldPoints);
 
     expect(popups).toHaveLength(0);
+  });
+
+  test('clearing for a user switch drops the list, points and popup, and nothing old still works', async () => {
+    const { map, list, popups, swap, fragment, rendered, clickPoint, proposeArea, places, flush } =
+      setup();
+    map.fire('load');
+    swap(fragment(VIEW));
+    const oldPoints = rendered();
+    const popup = clickPoint('place-1');
+
+    places.clear();
+
+    expect(list.innerHTML).toBe('');
+    expect(rendered()).toEqual([]);
+    expect(popup.remove).toHaveBeenCalled();
+    // The old popup's button, and the old points until MapLibre removes them, do nothing.
+    popup.content!.querySelector('.popup-save-area')!.click();
+    await flush();
+    expect(proposeArea).not.toHaveBeenCalled();
+    clickPoint('place-1', oldPoints);
+    expect(popups).toHaveLength(1);
   });
 });

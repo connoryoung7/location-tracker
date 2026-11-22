@@ -1,31 +1,8 @@
-/** Populate both user selectors without replacing the forms or their draft state. */
-export function updateUserSelects(root, users) {
-  for (const select of root.querySelectorAll('[data-user-select]')) {
-    const previous = select.value;
-    const options = [...new Set(users)].sort();
-    select.replaceChildren();
-    const placeholder = root.createElement('option');
-    placeholder.value = '';
-    placeholder.textContent = options.length ? 'Select a user' : 'No tracked users yet';
-    select.append(placeholder);
-    for (const user of options) {
-      const option = root.createElement('option');
-      option.value = user;
-      option.textContent = user;
-      select.append(option);
-    }
-    select.value = options.includes(previous) ? previous : options.length === 1 ? options[0] : '';
-    // reset() should also select the sole user for the next area.
-    for (const option of select.options) option.defaultSelected = option.value === select.value;
-    select.disabled = options.length === 0;
-    for (const button of select.form.querySelectorAll('[data-user-submit]'))
-      button.disabled = options.length === 0;
-    if (select.value !== previous)
-      select.dispatchEvent(new root.defaultView.Event('change', { bubbles: true }));
-  }
-}
-
-/** Local draft controller. Only a second, explicit submit sends a creation request. */
+/**
+ * Local draft controller. Only a second, explicit submit sends a creation request.
+ * The area is drafted for the page-wide user in `#user-select`; the review step
+ * shows that user, and a draft reviewed for one user is never saved for another.
+ */
 export function createAreaForm(
   root,
   {
@@ -45,6 +22,7 @@ export function createAreaForm(
   const error = root.getElementById('form-error');
   const placement = root.getElementById('draw-placement');
   const coordinates = root.getElementById('draw-coordinates');
+  const userSelect = root.getElementById('user-select');
   let isReviewing = false;
   let isSaving = false;
   let reviewed = null;
@@ -54,13 +32,12 @@ export function createAreaForm(
     settleProposal?.(isSaved);
     settleProposal = null;
   }
-  const values = () =>
-    Object.fromEntries(
-      ['userId', 'name', 'lat', 'lon', 'radius'].map((key) => [
-        key,
-        form.elements.namedItem(key).value,
-      ]),
-    );
+  const values = () => ({
+    userId: userSelect.value,
+    ...Object.fromEntries(
+      ['name', 'lat', 'lon', 'radius'].map((key) => [key, form.elements.namedItem(key).value]),
+    ),
+  });
   function edit() {
     isReviewing = false;
     reviewed = null;
@@ -198,10 +175,18 @@ export function createAreaForm(
     } finally {
       isSaving = false;
       for (const control of form.querySelectorAll('button')) control.disabled = false;
-      submit.disabled = form.elements.namedItem('userId').disabled;
+      submit.disabled = !userSelect.value;
     }
   });
   return {
+    /** Whether a draft is in progress, from Add area until it is saved or cancelled. */
+    isOpen() {
+      return !form.hidden;
+    },
+    /** Throws the draft away, as Cancel does. */
+    discard() {
+      if (!form.hidden) close();
+    },
     setGeometry(centre, radius) {
       if (isSaving || isReviewing) return;
       form.elements.namedItem('lat').value = String(centre[1]);
@@ -213,30 +198,31 @@ export function createAreaForm(
     },
     /**
      * Opens a pre-filled draft, e.g. for a place the user keeps visiting, at the
-     * review step when it is complete and at the first missing field otherwise.
+     * review step when it is complete and at the name field when it has none.
      * Nothing is saved until the user confirms, as with a drawn area. The promise
-     * resolves true once the area is created, or false if the draft is cancelled
-     * or replaced by another proposal.
+     * resolves true once the area is created, or false if the draft is cancelled,
+     * replaced by another proposal, or discarded by a user switch.
      */
     propose({ userId, name, lat, lon, radius }) {
-      if (isSaving) return Promise.resolve(false);
+      // The area is drafted for the page-wide user, so a place found for anyone
+      // else is refused. Places are cleared whenever the user changes, so this
+      // only guards against a stale button.
+      if (isSaving || !userId || userId !== userSelect.value) return Promise.resolve(false);
       settle(false);
       open();
       placement.value = 'coordinates';
       coordinates.open = true;
       root.getElementById('draw-placement-hint').textContent =
         'Centred on the place visited. Adjust the name or circle if needed, then choose Review area.';
-      for (const [key, value] of Object.entries({ userId, name, lat, lon, radius })) {
+      for (const [key, value] of Object.entries({ name, lat, lon, radius })) {
         form.elements.namedItem(key).value = String(value);
       }
       placementChanged('coordinates');
       updatePreview();
-      // An unnamed place, or a user missing from the list, needs an answer first.
-      const missing = ['name', 'userId']
-        .map((key) => form.elements.namedItem(key))
-        .find((field) => !field.value);
-      if (missing) {
-        missing.focus();
+      // An unnamed place needs a name first.
+      const nameField = form.elements.namedItem('name');
+      if (!nameField.value) {
+        nameField.focus();
       } else if (form.checkValidity()) {
         review(values());
         submit.focus();

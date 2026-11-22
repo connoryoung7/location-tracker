@@ -16,6 +16,7 @@ import {
 } from '@/application/build-visited-place-view.ts';
 import type { VisitedPlace } from '@/application/infer-visited-places.ts';
 import { CreateAreaSchema } from '@/domain/schemas.ts';
+import type { Area } from '@/domain/types.ts';
 import type {
   AreaEventRepository,
   AreaRepository,
@@ -59,31 +60,72 @@ function escapeJsonForScript(value: unknown): string {
   return JSON.stringify(value).replace(/</g, '\\u003c');
 }
 
-function renderAreasFragment(view: AreaMapView): string {
-  const legendRows = view.legend
+/** Same limit as `CreateAreaSchema`, so every route accepts the same IDs. */
+const MAX_USER_ID_LENGTH = 64;
+
+type UserIdParam = { kind: 'missing' } | { kind: 'invalid' } | { kind: 'valid'; userId: string };
+
+/**
+ * Reads the page-wide user from a query string or body. Blank means no user is
+ * selected yet, which fragments answer with a prompt rather than an error.
+ */
+function parseUserId(value: unknown): UserIdParam {
+  if (typeof value !== 'string' || !value.trim()) return { kind: 'missing' };
+  if (value.length > MAX_USER_ID_LENGTH) return { kind: 'invalid' };
+  return { kind: 'valid', userId: value };
+}
+
+/** The areas data the map reads, tagged with whose areas they are. */
+type AreasPanelData = AreaMapView & { userId: string };
+
+function renderAreasData(data: AreasPanelData): string {
+  return `<script type="application/json" id="areas-data">${escapeJsonForScript(data)}</script>`;
+}
+
+function renderAreasFragment(userId: string, areas: Area[]): string {
+  const data = renderAreasData({ userId, ...buildAreaMapView(areas) });
+  const { rows } = buildAreaListView(areas);
+  if (rows.length === 0) {
+    return `
+    <p class="legend-empty">No areas for ${escapeHtml(userId)} yet. Use <strong>Add area</strong> to draw one.</p>
+    ${data}
+  `;
+  }
+
+  const items = rows
     .map(
       (row) => `
-      <li class="legend-row">
-        <label>
-          <input type="checkbox" checked data-user-id="${escapeHtml(row.userId)}" />
+      <li>
+        <button type="button" class="area-locate" data-bounds="${escapeHtml(JSON.stringify(row.bounds))}">
           <span class="legend-swatch" style="background:${escapeHtml(row.color)}"></span>
-          <span class="legend-user">${escapeHtml(row.userId)}</span>
-          <span class="legend-count">${row.areaCount}</span>
-        </label>
+          <span class="area-name">${escapeHtml(row.name)}</span>
+          <span class="area-radius">${Math.round(row.radius)} m</span>
+        </button>
       </li>`,
     )
     .join('');
 
-  const emptyState =
-    view.legend.length === 0
-      ? '<p class="legend-empty">No areas defined yet. Use <strong>Add area</strong> to draw one.</p>'
-      : '';
-
   return `
-    ${emptyState}
-    <ul class="legend-list">${legendRows}</ul>
-    <script type="application/json" id="areas-data">${escapeJsonForScript(view)}</script>
+    <p class="area-count">${rows.length} ${rows.length === 1 ? 'area' : 'areas'}</p>
+    <ul class="area-names">${items}</ul>
+    ${data}
   `;
+}
+
+/**
+ * Shown until a user is selected. Carries an empty data block so the map drops
+ * the previous user's circles instead of leaving them behind.
+ */
+function renderAreasPrompt(): string {
+  return `
+    <p class="legend-empty">Select a user above to see their areas.</p>
+    ${renderAreasData({ userId: '', ...buildAreaMapView([]) })}
+  `;
+}
+
+/** A user ID no route will accept. Carries no data block, so the map is left as it was. */
+function renderUserError(): string {
+  return '<p class="notice legend-error" data-tone="error" role="alert">Unknown user.</p>';
 }
 
 /**
@@ -99,9 +141,9 @@ function formatCoordinate(value: number): string {
   return value.toFixed(5);
 }
 
-function renderAreaListFragment(view: AreaListView): string {
+function renderAreaListFragment(userId: string, view: AreaListView): string {
   if (view.rows.length === 0) {
-    return '<p class="legend-empty">No areas defined yet.</p>';
+    return `<p class="legend-empty">No areas for ${escapeHtml(userId)} yet.</p>`;
   }
 
   const rows = view.rows
@@ -109,16 +151,10 @@ function renderAreaListFragment(view: AreaListView): string {
       (row) => `
         <tr>
           <th scope="row" class="area-list-name">${escapeHtml(row.name)}</th>
-          <td>
-            <span class="area-list-user">
-              <span class="legend-swatch" style="background:${escapeHtml(row.color)}"></span>
-              ${escapeHtml(row.userId)}
-            </span>
-          </td>
           <td class="area-list-number">${formatCoordinate(row.lat)}, ${formatCoordinate(row.lon)}</td>
           <td class="area-list-number">${Math.round(row.radius)} m</td>
           <td class="area-list-actions">
-            <button type="button" class="area-list-show secondary outline" data-owner-id="${escapeHtml(row.userId)}" data-bounds="${escapeHtml(JSON.stringify(row.bounds))}">Show</button>
+            <button type="button" class="area-list-show secondary outline" data-bounds="${escapeHtml(JSON.stringify(row.bounds))}">Show</button>
             <button
               type="button"
               class="area-list-delete outline"
@@ -136,7 +172,7 @@ function renderAreaListFragment(view: AreaListView): string {
     <p class="area-list-count">${view.rows.length} ${view.rows.length === 1 ? 'area' : 'areas'}</p>
     <table class="area-list">
       <thead>
-        <tr><th scope="col">Name</th><th scope="col">User</th><th scope="col">Centre</th><th scope="col">Radius</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr>
+        <tr><th scope="col">Name</th><th scope="col">Centre</th><th scope="col">Radius</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr>
       </thead>
       <tbody>${rows}</tbody>
     </table>
@@ -189,7 +225,7 @@ function renderEventsFragment(view: AreaEventView): string {
  */
 function renderEventsPrompt(): string {
   return `
-    <p class="events-empty">Select a user to see their events.</p>
+    <p class="events-empty">Select a user above to see their events.</p>
     <script type="application/json" id="events-data">null</script>
   `;
 }
@@ -301,7 +337,17 @@ function renderFormErrorOob(message: string): string {
   return `<p id="form-error" hx-swap-oob="true" class="notice" data-tone="error" role="status">${escapeHtml(message)}</p>`;
 }
 
-function renderPage(): string {
+/**
+ * @param selectedUserId From `?user=`. Rendered as the select's chosen option so
+ *   the very first fragment loads already carry it, before `/users` answers.
+ */
+function renderPage(selectedUserId?: string): string {
+  // htmx leaves disabled fields out of requests, so a preselected user keeps the
+  // select enabled; with none, it waits disabled until the user poll fills it.
+  const userSelect = selectedUserId
+    ? `<select id="user-select" name="userId"><option value="${escapeHtml(selectedUserId)}" selected>${escapeHtml(selectedUserId)}</option></select>`
+    : '<select id="user-select" name="userId" disabled><option value="">Loading users…</option></select>';
+
   return `<!doctype html>
 <html lang="en">
   <head>
@@ -334,17 +380,30 @@ function renderPage(): string {
           <h1>Location Tracker</h1>
           <p>Areas and geofence events</p>
         </div>
+        <!--
+          The one user the whole page shows. Every panel includes this form instead
+          of keeping a selection of its own, and reloads when it changes.
+        -->
+        <form id="user-scope" class="user-scope">
+          <!-- Set by app.js to the browser's zone, so events are grouped into the viewer's days. -->
+          <input type="hidden" name="tz" id="user-scope-tz" />
+          <label for="user-select">User</label>
+          ${userSelect}
+        </form>
+        <p id="user-status" class="notice user-status" data-tone="info" role="status"></p>
       </header>
 
       <section class="panel" aria-labelledby="areas-heading">
         <div class="panel-header">
           <h2 id="areas-heading">Areas</h2>
-          <button type="button" id="area-list-open" class="secondary outline">List areas</button>
+          <button type="button" id="area-list-open" class="secondary outline" data-user-submit disabled>List areas</button>
         </div>
         <div
           id="areas"
           hx-get="/fragments/areas"
-          hx-trigger="load, refresh, every ${REFRESH_INTERVAL}"
+          hx-include="#user-scope"
+          hx-trigger="load, change from:#user-scope, refresh, every ${REFRESH_INTERVAL}"
+          hx-sync="this:replace"
           hx-swap="innerHTML"
         ></div>
       </section>
@@ -355,7 +414,7 @@ function renderPage(): string {
       -->
       <section class="panel" id="draw-panel" aria-labelledby="draw-heading">
         <h2 id="draw-heading">New area</h2>
-        <button type="button" id="draw-start" class="block">Add area</button>
+        <button type="button" id="draw-start" class="block" disabled>Add area</button>
         <form id="draw-form" hidden>
           <ol class="draw-steps" aria-label="Progress">
             <li class="draw-step-edit">Place &amp; adjust</li>
@@ -370,7 +429,6 @@ function renderPage(): string {
             </label>
             <p class="draw-hint" id="draw-placement-hint">Click the map to place the centre, move to size the circle, then click again.</p>
             <label>Name <input type="text" name="name" required maxlength="200" /></label>
-            <label>User <select name="userId" required data-user-select disabled><option value="">Loading users…</option></select></label>
             <p class="draw-readout" id="draw-readout">No centre set</p>
             <details id="draw-coordinates">
               <summary>Adjust coordinates and radius</summary>
@@ -395,39 +453,32 @@ function renderPage(): string {
 
       <section class="panel" id="events-panel" aria-labelledby="events-heading">
         <h2 id="events-heading">Recent events</h2>
-        <form id="events-filter">
-          <!-- Set by app.js to the browser's zone, so events are grouped into the viewer's days. -->
-          <input type="hidden" name="tz" id="events-tz" />
-          <label>User <select name="userId" data-user-select disabled><option value="">Loading users…</option></select></label>
-        </form>
         <!-- Refreshed when the user changes, after a recompute, and on the same poll as the areas. -->
         <div
           id="events"
           hx-get="/fragments/events"
-          hx-include="#events-filter"
-          hx-trigger="load, change from:#events-filter, refresh, every ${REFRESH_INTERVAL}"
+          hx-include="#user-scope"
+          hx-trigger="load, change from:#user-scope, refresh, every ${REFRESH_INTERVAL}"
+          hx-sync="this:replace"
           hx-swap="innerHTML"
         ></div>
       </section>
 
       <section class="panel" aria-labelledby="recompute-heading">
         <h2 id="recompute-heading">Event history</h2>
-        <p class="panel-hint">Rebuild a user's entry and exit events from their stored locations and the current areas.</p>
-        <form id="recompute-form" class="recompute-form" hx-post="/users/recompute" hx-target="#recompute-result" hx-confirm="Replace this user's event history using current areas?" hx-disabled-elt="find button">
-          <label>User <select name="userId" required data-user-select disabled><option value="">Loading users…</option></select></label>
+        <p class="panel-hint">Rebuild this user's entry and exit events from their stored locations and their current areas.</p>
+        <form id="recompute-form" class="recompute-form" hx-post="/users/recompute" hx-include="#user-scope" hx-target="#recompute-result" hx-confirm="Replace this user's event history using their current areas?" hx-disabled-elt="find button">
           <button type="submit" class="secondary" data-user-submit disabled>Recompute events</button>
           <span class="htmx-indicator" aria-busy="true">Recomputing…</span>
         </form>
-        <p id="user-status" class="notice" data-tone="info" role="status"></p>
         <p id="recompute-result" class="notice" data-tone="info" role="status"></p>
       </section>
 
       <!-- Loaded only on request: each run reads the whole period and may look places up online. -->
       <section class="panel" id="places-panel" aria-labelledby="places-heading">
         <h2 id="places-heading">Places visited</h2>
-        <p class="panel-hint">Find where a user stopped for 5 minutes or more, and what was there.</p>
-        <form id="places-form" class="places-form" hx-get="/fragments/places" hx-target="#places" hx-swap="innerHTML" hx-disabled-elt="find button">
-          <label>User <select name="userId" required data-user-select disabled><option value="">Loading users…</option></select></label>
+        <p class="panel-hint">Find where this user stopped for 5 minutes or more, and what was there.</p>
+        <form id="places-form" class="places-form" hx-get="/fragments/places" hx-include="#user-scope" hx-target="#places" hx-swap="innerHTML" hx-disabled-elt="find button">
           <label>Period
             <select name="days">
               <option value="7">Last 7 days</option>
@@ -447,9 +498,9 @@ function renderPage(): string {
         <article>
           <header>
             <button type="button" id="area-list-close" aria-label="Close" rel="prev"></button>
-            <h3 id="area-list-title">All areas</h3>
+            <h3 id="area-list-title">Areas</h3>
           </header>
-          <div id="area-list" hx-get="/fragments/area-list" hx-trigger="refresh" hx-swap="innerHTML"></div>
+          <div id="area-list" hx-get="/fragments/area-list" hx-include="#user-scope" hx-trigger="refresh" hx-sync="this:replace" hx-swap="innerHTML"></div>
         </article>
       </dialog>
 
@@ -508,18 +559,39 @@ export function createAppServer(deps: AppDeps) {
     }
   });
 
-  app.get('/', (_req, res) => {
-    res.type('html').send(renderPage());
+  app.get('/', (req, res) => {
+    // An over-long `?user=` is ignored rather than rejected: the page still
+    // loads, and the user is picked as if none had been named.
+    const user = parseUserId(req.query.user);
+    res.type('html').send(renderPage(user.kind === 'valid' ? user.userId : undefined));
   });
 
-  app.get('/fragments/areas', async (_req, res) => {
-    await sendAreasFragment(res);
+  app.get('/fragments/areas', async (req, res) => {
+    const user = parseUserId(req.query.userId);
+    if (user.kind === 'missing') {
+      res.type('html').send(renderAreasPrompt());
+      return;
+    }
+    if (user.kind === 'invalid') {
+      res.status(422).type('html').send(renderUserError());
+      return;
+    }
+    await sendAreasFragment(res, user.userId);
   });
 
-  app.get('/fragments/area-list', async (_req, res) => {
+  app.get('/fragments/area-list', async (req, res) => {
+    const user = parseUserId(req.query.userId);
+    if (user.kind === 'missing') {
+      res.type('html').send('<p class="legend-empty">Select a user above to see their areas.</p>');
+      return;
+    }
+    if (user.kind === 'invalid') {
+      res.status(422).type('html').send(renderUserError());
+      return;
+    }
     try {
-      const areas = await deps.areaRepo.listAllAreas();
-      res.type('html').send(renderAreaListFragment(buildAreaListView(areas)));
+      const areas = await deps.areaRepo.listAreas(user.userId);
+      res.type('html').send(renderAreaListFragment(user.userId, buildAreaListView(areas)));
     } catch (error) {
       deps.logger.error('Failed to load the area list', error);
       res.status(503).type('html').send(renderAreasError());
@@ -527,19 +599,17 @@ export function createAppServer(deps: AppDeps) {
   });
 
   app.get('/fragments/events', async (req, res) => {
-    const userId = req.query.userId;
-    if (typeof userId !== 'string' || !userId.trim()) {
+    const user = parseUserId(req.query.userId);
+    if (user.kind === 'missing') {
       res.type('html').send(renderEventsPrompt());
       return;
     }
-    if (userId.length > 64) {
-      res
-        .status(422)
-        .type('html')
-        .send('<p class="notice legend-error" data-tone="error" role="alert">Unknown user.</p>');
+    if (user.kind === 'invalid') {
+      res.status(422).type('html').send(renderUserError());
       return;
     }
 
+    const { userId } = user;
     try {
       const events = await deps.areaEvents.listAreaEvents(userId, { limit: EVENT_LIST_LIMIT });
       const timeZone = typeof req.query.tz === 'string' ? req.query.tz : undefined;
@@ -560,11 +630,12 @@ export function createAppServer(deps: AppDeps) {
   });
 
   app.post('/users/recompute', async (req, res) => {
-    const userId = req.body?.userId;
-    if (typeof userId !== 'string' || !userId.trim() || userId.length > 64) {
-      res.status(422).send('Enter a user ID.');
+    const user = parseUserId(req.body?.userId);
+    if (user.kind !== 'valid') {
+      res.status(422).send('Select a user above.');
       return;
     }
+    const { userId } = user;
     try {
       if (!deps.recompute) throw new Error('Recompute is unavailable');
       const result = await deps.recompute(userId);
@@ -580,11 +651,12 @@ export function createAppServer(deps: AppDeps) {
   });
 
   app.get('/fragments/places', async (req, res) => {
-    const userId = req.query.userId;
-    if (typeof userId !== 'string' || !userId.trim() || userId.length > 64) {
-      res.status(422).type('html').send(renderPlacesNotice('Select a user.'));
+    const user = parseUserId(req.query.userId);
+    if (user.kind !== 'valid') {
+      res.status(422).type('html').send(renderPlacesNotice('Select a user above.'));
       return;
     }
+    const { userId } = user;
     const period = typeof req.query.days === 'string' ? req.query.days : '30';
     if (!Object.hasOwn(PLACE_PERIOD_DAYS, period)) {
       res.status(422).type('html').send(renderPlacesNotice('Choose a period from the list.'));
@@ -613,7 +685,15 @@ export function createAppServer(deps: AppDeps) {
         res.status(422).json({ error: message });
         return;
       }
-      await sendAreasFragment(res, { status: 422, formError: message });
+      const user = parseUserId(req.body?.userId);
+      if (user.kind === 'valid') {
+        await sendAreasFragment(res, user.userId, { status: 422, formError: message });
+      } else {
+        res
+          .status(422)
+          .type('html')
+          .send(renderAreasPrompt() + renderFormErrorOob(message));
+      }
       return;
     }
 
@@ -633,8 +713,8 @@ export function createAppServer(deps: AppDeps) {
       return;
     }
 
-    // Respond with the refreshed legend so the sidebar and map update together.
-    await sendAreasFragment(res);
+    // Respond with the refreshed areas so the sidebar and map update together.
+    await sendAreasFragment(res, result.data.userId);
   });
 
   app.delete('/areas/:userId/:areaId', async (req, res) => {
@@ -646,22 +726,21 @@ export function createAppServer(deps: AppDeps) {
       return;
     }
 
-    await sendAreasFragment(res);
+    await sendAreasFragment(res, req.params.userId);
   });
 
+  /** The areas panel for one user: their area names plus the circles for the map. */
   async function sendAreasFragment(
     res: express.Response,
+    userId: string,
     options: { status?: number; formError?: string } = {},
   ): Promise<void> {
     try {
-      const areas = await deps.areaRepo.listAllAreas();
+      const areas = await deps.areaRepo.listAreas(userId);
       res
         .status(options.status ?? 200)
         .type('html')
-        .send(
-          renderAreasFragment(buildAreaMapView(areas)) +
-            renderFormErrorOob(options.formError ?? ''),
-        );
+        .send(renderAreasFragment(userId, areas) + renderFormErrorOob(options.formError ?? ''));
     } catch (error) {
       // The page polls this endpoint, so an outage would otherwise leave a blank
       // sidebar with the reason buried in the server log. Degrade to a visible

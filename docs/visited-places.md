@@ -4,8 +4,8 @@ The **Places visited** panel in the map UI works out where a user has been from
 their stored locations: the spots they stopped at, how often, for how long, and
 what each spot probably is, such as "Fresh Market, Grocery store, 6 visits".
 
-Pick a user and a period (7, 30 or 90 days, or all time) and choose **Find
-places**. The panel lists places busiest first, sums visits by kind of place
+With a user selected at the top of the page, pick a period (7, 30 or 90 days,
+or all time) and choose **Find places**. The panel lists places busiest first, sums visits by kind of place
 ("Grocery store 6 · Café 3"), and plots each place as a purple point sized by
 its visit count. Click a row to fly to it, or a point to see its summary.
 
@@ -75,8 +75,9 @@ café.
 Every place that is not already inside one of the user's areas asks **Make this
 a saved area?** in its list row, and its map popup has the same **Save as area**
 button. Either one opens a draft in the New area form and flies the map to it
-(the popup closes so it does not cover the circle). The draft is filled in for
-you:
+(the popup closes so it does not cover the circle). Like every area, it is
+drafted for the user selected at the top of the page. The draft is filled in
+for you:
 
 - **Name:** the best guess. A place with nothing named nearby has no name yet,
   so the form waits on the Name field.
