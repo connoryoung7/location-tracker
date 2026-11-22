@@ -628,6 +628,156 @@ body {
   color: var(--muted);
 }
 
+/* ---------- Places visited ---------- */
+
+/* Matches `PLACE_COLOR` in visited-places.js. */
+.pico #places-panel {
+  --place-color: #7c3aed;
+}
+
+.pico .places-form {
+  display: flex;
+  flex-direction: column;
+}
+
+.pico .places-form button {
+  width: 100%;
+  margin: 0;
+}
+
+.pico .places-form .htmx-indicator {
+  margin-top: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+
+.pico .places-form .htmx-indicator:not(.htmx-request) {
+  display: none;
+}
+
+.pico .places-form.htmx-request .htmx-indicator {
+  display: block;
+}
+
+.pico #places:not(:empty) {
+  margin-top: var(--space-3);
+}
+
+.pico .place-categories {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin: 0 0 var(--space-2);
+  padding: 0;
+}
+
+.pico .place-categories li {
+  list-style: none;
+  margin: 0;
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--text-sm);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--place-color) 12%, var(--surface-raised));
+}
+
+.pico .place-list {
+  max-height: 40vh;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+}
+
+.pico .place-list > li {
+  list-style: none;
+  margin: 0 0 var(--space-1);
+}
+
+.pico .place-locate {
+  --pico-background-color: transparent;
+  --pico-border-color: transparent;
+  --pico-color: var(--pico-color);
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0 var(--space-2);
+  width: 100%;
+  margin: 0;
+  padding: var(--space-2) var(--space-2) var(--space-2) var(--space-3);
+  border-left: 3px solid var(--place-color);
+  border-radius: var(--radius-sm);
+  box-shadow: none;
+  font-size: var(--text-md);
+  text-align: left;
+}
+
+.pico .place-locate:is(:hover, :focus-visible) {
+  --pico-background-color: var(--surface-sunken);
+}
+
+/* Unidentified places keep a neutral edge so the guesses stand out. */
+.pico :is(.place-none, .place-skipped, .place-failed, .place-off) .place-locate {
+  border-left-color: var(--border);
+}
+
+.place-label {
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.place-visits {
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+.place-detail,
+.place-last {
+  grid-column: 1 / -1;
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+
+.place-last time {
+  font-variant-numeric: tabular-nums;
+}
+
+.pico .place-alternatives {
+  margin: 0 0 var(--space-2) var(--space-3);
+  font-size: var(--text-sm);
+}
+
+.pico .place-alternatives summary {
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+
+.pico .place-alternatives ul {
+  margin: var(--space-1) 0 0;
+  padding-left: var(--space-4);
+}
+
+.pico .place-alternatives li {
+  margin: 0;
+}
+
+.pico .place-alternatives li span {
+  color: var(--muted);
+}
+
+.pico .place-attribution {
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-xs);
+  color: var(--muted);
+}
+
+.pico .popup-detail {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+
 /* ---------- Areas list dialog ---------- */
 
 .pico #area-list-dialog article {

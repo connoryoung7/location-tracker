@@ -19,6 +19,7 @@ Then open <http://localhost:3002>.
 | `REDIS_URL`         | `redis://localhost:6379` | Where the geofence index lives     |
 | `POSTGRES_PASSWORD` | unset                    | Set to own areas in Postgres       |
 | `DB_PATH`           | `location-tracker.db`    | SQLite file when Postgres is unset |
+| `OVERPASS_URL`      | public Overpass instance | Where visited places are looked up |
 
 `ENCRYPTION_KEY` must also be set, because `loadConfig()` validates the whole
 config schema up front. The map UI never uses the key itself.
@@ -31,6 +32,7 @@ config schema up front. The map UI never uses the key itself.
 | `GET /fragments/areas`           | HTMX fragment — legend markup plus the areas as GeoJSON |
 | `GET /fragments/area-list`       | HTMX fragment — every area as a table for the modal     |
 | `GET /fragments/events?userId=`  | HTMX fragment — a user's latest area events plus points |
+| `GET /fragments/places?userId=`  | HTMX fragment — places a user stopped at; see below     |
 | `POST /areas`                    | Create an area; the server assigns its `id`             |
 | `DELETE /areas/:userId/:areaId`  | Delete an area                                          |
 | `GET /users`                     | Known tracker IDs and area owners for the dropdowns     |
@@ -193,6 +195,12 @@ midnight in UTC. An unknown or missing zone falls back to UTC. `Yesterday` is
 worked out from calendar dates rather than "24 hours ago", so it stays correct
 on daylight-saving days. Labels are always in `en-US` so they don't depend on
 the server's locale.
+
+## Visited places
+
+The Places visited panel finds where a user stopped for 5 minutes or more and
+names each spot from their areas or from nearby OpenStreetMap places. See
+[visited-places.md](visited-places.md).
 
 ## Recomputing event history
 

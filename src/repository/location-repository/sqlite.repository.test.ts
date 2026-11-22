@@ -4,6 +4,24 @@ import { runMigrations } from '@/infrastructure/persistence/migrate.ts';
 import { SqliteLocationRepository } from '@/repository/location-repository/sqlite.repository.ts';
 import type { GeofenceEvent } from '@/domain/events.ts';
 
+test('history carries GPS accuracy only when the device reported it', async () => {
+  const db = new Database(':memory:');
+  runMigrations(db);
+  const repo = new SqliteLocationRepository(db);
+  try {
+    repo.saveLocation({ _type: 'location', tid: 'u', tst: 1, lat: 0, lon: 0, acc: 12 });
+    repo.saveLocation({ _type: 'location', tid: 'u', tst: 2, lat: 0, lon: 0 });
+    const points = [];
+    for await (const point of repo.listLocations('u')) points.push(point);
+    expect(points).toEqual([
+      { _type: 'location', tid: 'u', tst: 1, lat: 0, lon: 0, acc: 12 },
+      { _type: 'location', tid: 'u', tst: 2, lat: 0, lon: 0 },
+    ]);
+  } finally {
+    db.close();
+  }
+});
+
 test('history orders ties, filters users/ranges, replacement is atomic and repeatable', async () => {
   const db = new Database(':memory:');
   runMigrations(db);

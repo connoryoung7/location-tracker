@@ -9,6 +9,12 @@ import {
 } from '@/application/build-area-event-view.ts';
 import { buildAreaListView, type AreaListView } from '@/application/build-area-list-view.ts';
 import { buildAreaMapView, type AreaMapView } from '@/application/build-area-map-view.ts';
+import {
+  buildVisitedPlaceView,
+  type VisitedPlaceRow,
+  type VisitedPlaceView,
+} from '@/application/build-visited-place-view.ts';
+import type { VisitedPlace } from '@/application/infer-visited-places.ts';
 import { CreateAreaSchema } from '@/domain/schemas.ts';
 import type {
   AreaEventRepository,
@@ -26,6 +32,8 @@ import type {
 export interface AppDeps {
   users: TrackedUserRepository;
   recompute?: (userId: string) => Promise<{ locations: number; before: number; after: number }>;
+  /** Works out where a user stopped within `range` (Unix epoch seconds). */
+  visitedPlaces?: (userId: string, range: { from?: number }) => Promise<VisitedPlace[]>;
   areaRepo: AreaRepository;
   areaEvents: AreaEventRepository;
   logger: Logger;
@@ -194,6 +202,82 @@ function renderEventsError(): string {
   return `<p class="notice legend-error" data-tone="error" role="alert">Could not load events. Retrying…</p>`;
 }
 
+/** The periods the places form offers, in days; `all` reads the whole history. */
+const PLACE_PERIOD_DAYS: Record<string, number | undefined> = {
+  '7': 7,
+  '30': 30,
+  '90': 90,
+  all: undefined,
+};
+
+/** How many kinds of place the summary line names. */
+const PLACE_CATEGORY_LIMIT = 4;
+
+function renderPlaceRow(row: VisitedPlaceRow): string {
+  const detail = [row.category ?? row.note, row.durationLabel].filter(Boolean).join(' · ');
+  const alternatives =
+    row.alternatives.length === 0
+      ? ''
+      : `
+        <details class="place-alternatives">
+          <summary>Or nearby: ${row.alternatives.length} more</summary>
+          <ul>${row.alternatives
+            .map(
+              (alternative) =>
+                `<li>${escapeHtml(alternative.name)} <span>${escapeHtml(alternative.category)} · ${alternative.distanceMeters} m</span></li>`,
+            )
+            .join('')}</ul>
+        </details>`;
+
+  return `
+      <li class="place-row place-${row.lookup}">
+        <button type="button" class="place-locate" data-lon="${row.lon}" data-lat="${row.lat}">
+          <span class="place-label">${escapeHtml(row.label)}</span>
+          <span class="place-visits">${row.visitCount} ${row.visitCount === 1 ? 'visit' : 'visits'}</span>
+          <span class="place-detail">${escapeHtml(detail)}</span>
+          <span class="place-last">Last <time datetime="${row.lastVisitIso}">${row.lastVisitIso}</time></span>
+        </button>${alternatives}
+      </li>`;
+}
+
+function renderPlacesFragment(view: VisitedPlaceView): string {
+  const data = `<script type="application/json" id="places-data">${escapeJsonForScript(view)}</script>`;
+  if (view.rows.length === 0) {
+    return `<p class="events-empty">No stops of 5 minutes or more in this period.</p>${data}`;
+  }
+
+  const categories = view.categories
+    .slice(0, PLACE_CATEGORY_LIMIT)
+    .map(
+      (category) =>
+        `<li>${escapeHtml(category.category)} <strong>${category.visitCount}</strong></li>`,
+    )
+    .join('');
+  const summary = categories
+    ? `<ul class="place-categories" aria-label="Visits by kind of place">${categories}</ul>`
+    : '';
+  // OpenStreetMap data is ODbL-licensed and must be credited wherever it is shown.
+  const usesOpenStreetMap = view.rows.some((row) => row.lookup === 'found');
+  const attribution = usesOpenStreetMap
+    ? '<p class="place-attribution">Nearest named place first, from <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>. Each name is a best guess.</p>'
+    : '';
+
+  return `
+    ${summary}
+    <ol class="place-list">${view.rows.map(renderPlaceRow).join('')}</ol>
+    ${attribution}
+    ${data}
+  `;
+}
+
+/**
+ * Like the events error, it carries no `places-data` block, so the map keeps
+ * the places it last showed.
+ */
+function renderPlacesNotice(message: string): string {
+  return `<p class="notice legend-error" data-tone="error" role="alert">${escapeHtml(message)}</p>`;
+}
+
 /**
  * Out-of-band element carrying the draw form's error text. Sent alongside the
  * legend so a rejected area reports itself without blanking the sidebar; empty
@@ -322,6 +406,26 @@ function renderPage(): string {
         </form>
         <p id="user-status" class="notice" data-tone="info" role="status"></p>
         <p id="recompute-result" class="notice" data-tone="info" role="status"></p>
+      </section>
+
+      <!-- Loaded only on request: each run reads the whole period and may look places up online. -->
+      <section class="panel" id="places-panel" aria-labelledby="places-heading">
+        <h2 id="places-heading">Places visited</h2>
+        <p class="panel-hint">Find where a user stopped for 5 minutes or more, and what was there.</p>
+        <form id="places-form" class="places-form" hx-get="/fragments/places" hx-target="#places" hx-swap="innerHTML" hx-disabled-elt="find button">
+          <label>User <select name="userId" required data-user-select disabled><option value="">Loading users…</option></select></label>
+          <label>Period
+            <select name="days">
+              <option value="7">Last 7 days</option>
+              <option value="30" selected>Last 30 days</option>
+              <option value="90">Last 90 days</option>
+              <option value="all">All time</option>
+            </select>
+          </label>
+          <button type="submit" class="secondary" data-user-submit disabled>Find places</button>
+          <span class="htmx-indicator" aria-busy="true">Finding places…</span>
+        </form>
+        <div id="places"></div>
       </section>
 
       <!-- Loaded each time it opens, so it never shows a stale copy of the poll. -->
@@ -458,6 +562,30 @@ export function createAppServer(deps: AppDeps) {
     } catch (error) {
       deps.logger.error('Recompute failed', error);
       res.status(503).send('Could not recompute events. Please retry.');
+    }
+  });
+
+  app.get('/fragments/places', async (req, res) => {
+    const userId = req.query.userId;
+    if (typeof userId !== 'string' || !userId.trim() || userId.length > 64) {
+      res.status(422).type('html').send(renderPlacesNotice('Select a user.'));
+      return;
+    }
+    const period = typeof req.query.days === 'string' ? req.query.days : '30';
+    if (!Object.hasOwn(PLACE_PERIOD_DAYS, period)) {
+      res.status(422).type('html').send(renderPlacesNotice('Choose a period from the list.'));
+      return;
+    }
+
+    const days = PLACE_PERIOD_DAYS[period];
+    const range = days === undefined ? {} : { from: Math.floor(Date.now() / 1000) - days * 86_400 };
+    try {
+      if (!deps.visitedPlaces) throw new Error('Visited places are unavailable');
+      const places = await deps.visitedPlaces(userId, range);
+      res.type('html').send(renderPlacesFragment(buildVisitedPlaceView(userId, places)));
+    } catch (error) {
+      deps.logger.error('Failed to find visited places', error);
+      res.status(503).type('html').send(renderPlacesNotice('Could not find places. Please retry.'));
     }
   });
 

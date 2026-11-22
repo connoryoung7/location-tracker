@@ -4,6 +4,7 @@ import type {
   GeocodingResult,
   GeofenceReplayState,
   LocationPayload,
+  PointOfInterest,
   TransitionPayload,
   WaypointPayload,
 } from '@/domain/types.ts';
@@ -83,6 +84,11 @@ export interface PayloadDecryptor {
 
 export interface Geocoder {
   reverseGeocode(lat: number, lon: number): Promise<GeocodingResult>;
+}
+
+/** Looks up named places (shops, parks, …) around a coordinate. */
+export interface PlaceFinder {
+  findNearbyPlaces(lat: number, lon: number, radiusMeters: number): Promise<PointOfInterest[]>;
 }
 
 export interface NotificationSender {

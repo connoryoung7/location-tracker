@@ -245,14 +245,21 @@ export class PostgresLocationRepository
     let timestamp = range.from ?? 0;
     let id = 0;
     while (true) {
-      const rows = await this.conn`SELECT id, lat, lon, tst, tid FROM locations
+      const rows = await this.conn`SELECT id, lat, lon, tst, tid, acc FROM locations
         WHERE tid = ${userId} AND tst >= ${range.from ?? 0} AND tst <= ${range.to ?? 2147483647}
         AND (tst > ${timestamp} OR (tst = ${timestamp} AND id > ${id})) ORDER BY tst, id LIMIT 1000`;
       if (!rows.length) return;
       for (const row of rows) {
         timestamp = row.tst;
         id = row.id;
-        yield { _type: 'location', lat: row.lat, lon: row.lon, tst: row.tst, tid: row.tid };
+        yield {
+          _type: 'location',
+          lat: row.lat,
+          lon: row.lon,
+          tst: row.tst,
+          tid: row.tid,
+          ...(row.acc === null ? {} : { acc: row.acc }),
+        };
       }
     }
   }
