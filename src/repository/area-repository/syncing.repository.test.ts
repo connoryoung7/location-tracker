@@ -215,6 +215,53 @@ describe('SyncingAreaRepository', () => {
     expect(await redis.sismember('geofence:inside:AB', 'deleted-area')).toBe(false);
   });
 
+  test('an edit lands in both, and keeps live geofence membership', async () => {
+    await repo.addArea(buildArea({ id: 'a1', userId: 'AB', name: 'Home', radius: 100 }));
+    await redis.sadd('geofence:inside:AB', 'a1');
+
+    const isUpdated = await repo.updateArea(
+      buildArea({ id: 'a1', userId: 'AB', name: 'Gym', radius: 250 }),
+    );
+
+    expect(isUpdated).toBe(true);
+    expect(await source.getArea('AB', 'a1')).toMatchObject({ name: 'Gym', radius: 250 });
+    // Redis keeps positions as geohashes, so only the metadata compares exactly.
+    const projected = await projection.listAllAreas();
+    expect(projected).toHaveLength(1);
+    expect(projected[0]).toMatchObject({ id: 'a1', userId: 'AB', name: 'Gym', radius: 250 });
+    expect(await redis.get('area:maxradius:AB')).toBe('250');
+    // Still inside after the edit: the next location must not fire a duplicate enter.
+    expect(await redis.sismember('geofence:inside:AB', 'a1')).toBe(true);
+  });
+
+  test('an edit of a missing area touches neither store', async () => {
+    const isUpdated = await repo.updateArea(buildArea({ id: 'a1', userId: 'AB' }));
+
+    expect(isUpdated).toBe(false);
+    expect(await source.listAllAreas()).toEqual([]);
+    expect(await projection.listAllAreas()).toEqual([]);
+  });
+
+  test('a delete landing between the store and index writes is not undone in the index', async () => {
+    await repo.addArea(buildArea({ id: 'a1', userId: 'AB' }));
+    // A concurrent delete completes, store and index, just after the store update.
+    const racing = Object.create(source) as SqliteAreaRepository;
+    racing.updateArea = (area) => {
+      const isUpdated = source.updateArea(area);
+      source.removeArea(area.userId, area.id);
+      return isUpdated;
+    };
+    await projection.removeArea('AB', 'a1');
+    const racingRepo = new SyncingAreaRepository(racing, projection, redis, mockLogger());
+
+    expect(await racingRepo.updateArea(buildArea({ id: 'a1', userId: 'AB', name: 'Gym' }))).toBe(
+      true,
+    );
+
+    expect(await source.listAllAreas()).toEqual([]);
+    expect(await projection.listAllAreas()).toEqual([]);
+  });
+
   test('healthCheck fails when the index is unreachable', async () => {
     const dead = new RedisClient('redis://127.0.0.1:1', {
       maxRetries: 0,

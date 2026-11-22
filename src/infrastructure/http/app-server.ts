@@ -740,22 +740,22 @@ export function createAppServer(deps: AppDeps) {
     }
 
     const { userId, areaId } = req.params;
+    let isUpdated: boolean;
     try {
-      // Looked up first so an edit can never create an area, or reach another user's.
-      const area = await deps.areaRepo.getArea(userId, areaId);
-      if (!area) {
-        res.status(404).json({ error: 'This area no longer exists.' });
-        return;
-      }
-      // addArea upserts on the ID, so the area keeps its ID and owner. The geofence
-      // index keeps who is inside it, so the next location fires only real changes.
-      await deps.areaRepo.addArea({ ...area, ...result.data });
+      // One write scoped by ID and owner: an edit can never create an area, reach
+      // another user's, or bring back one deleted meanwhile. The geofence index
+      // keeps who is inside the area, so the next location fires only real changes.
+      isUpdated = await deps.areaRepo.updateArea({ id: areaId, userId, ...result.data });
     } catch (error) {
       deps.logger.error('Failed to update area', error);
       res.status(503).json({ error: 'Could not save changes. Your edits have been kept.' });
       return;
     }
 
+    if (!isUpdated) {
+      res.status(404).json({ error: 'This area no longer exists.' });
+      return;
+    }
     res.json({ id: areaId });
   });
 

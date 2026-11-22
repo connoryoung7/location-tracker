@@ -90,6 +90,26 @@ export class SyncingAreaRepository implements AreaRepository {
     await this.project(area.userId, () => this.projection.applyArea(area));
   }
 
+  /**
+   * Projects only an update the source actually made. The projection upserts, so
+   * a delete that lands between the two writes would otherwise be undone in the
+   * index: that delete has already cleared it, and applying the edit afterwards
+   * would bring the area back. Re-reading the source after applying catches that
+   * from any process, and drops the area from the index again.
+   */
+  async updateArea(area: Area): Promise<boolean> {
+    if (!(await this.source.updateArea(area))) {
+      return false;
+    }
+    await this.project(area.userId, async () => {
+      await this.projection.applyArea(area);
+      if (!(await this.source.getArea(area.userId, area.id))) {
+        await this.projection.removeArea(area.userId, area.id);
+      }
+    });
+    return true;
+  }
+
   async removeArea(userId: string, areaId: string): Promise<void> {
     await this.source.removeArea(userId, areaId);
     await this.project(userId, () => this.projection.removeArea(userId, areaId));

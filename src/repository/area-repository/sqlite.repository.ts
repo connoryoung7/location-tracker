@@ -48,6 +48,17 @@ export class SqliteAreaRepository implements AreaRepository {
     );
   }
 
+  /** Scoped by ID and owner; never inserts, unlike {@link addArea}. */
+  updateArea(area: Area): boolean {
+    const { changes } = this.db.run(
+      `UPDATE areas
+       SET name = ?, lat = ?, lon = ?, radius = ?, updated_at = datetime('now')
+       WHERE id = ? AND user_id = ?`,
+      [area.name, area.lat, area.lon, area.radius, area.id, area.userId],
+    );
+    return changes > 0;
+  }
+
   removeArea(userId: string, areaId: string): void {
     this.db.run(`DELETE FROM areas WHERE id = ? AND user_id = ?`, [areaId, userId]);
   }
