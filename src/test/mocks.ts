@@ -1,5 +1,6 @@
 import { mock } from 'bun:test';
 import type {
+  AreaEventRepository,
   AreaRepository,
   EventPublisher,
   Geocoder,
@@ -34,6 +35,14 @@ export function mockAreaRepository(): {
     listAllAreas: mock(() => Promise.resolve([])),
     getArea: mock(() => Promise.resolve(undefined)),
     healthCheck: mock(() => Promise.resolve()),
+  };
+}
+
+export function mockAreaEventRepository(): {
+  [K in keyof AreaEventRepository]: ReturnType<typeof mock>;
+} {
+  return {
+    listAreaEvents: mock(() => Promise.resolve([])),
   };
 }
 

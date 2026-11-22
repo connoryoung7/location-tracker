@@ -107,6 +107,11 @@ export interface LocationHistoryRepository {
   ): Promise<number>;
 }
 
+export interface AreaEventRepository {
+  /** A user's area events, newest first. */
+  listAreaEvents(userId: string, options?: { limit?: number }): Promise<GeofenceEvent[]>;
+}
+
 export interface TrackedUserRepository {
   listUserIds(): Promise<string[]>;
 }

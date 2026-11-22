@@ -11,6 +11,8 @@ import {
 
 const SOURCE_ID = 'areas';
 const DRAW_SOURCE_ID = 'draw-preview';
+const EVENTS_SOURCE_ID = 'events';
+const EVENT_COLORS = { entered: '#16a34a', exited: '#dc2626' };
 const EMPTY_COLLECTION = { type: 'FeatureCollection', features: [] };
 
 /**
@@ -43,6 +45,10 @@ map.addControl(new ScaleControl());
 let pendingView = null;
 let isStyleLoaded = false;
 let hasFramedAreas = false;
+/** Latest events view, held until the style finishes loading. */
+let pendingEventsView = null;
+/** The user whose events were last framed, so a poll does not keep moving the map. */
+let framedEventsUserId = null;
 const hiddenUserIds = new Set();
 
 map.on('load', () => {
@@ -75,15 +81,160 @@ map.on('load', () => {
     paint: { 'line-color': '#111827', 'line-width': 2, 'line-dasharray': [2, 2] },
   });
 
+  // Added after the areas so the points sit on top of the circles they mark.
+  map.addSource(EVENTS_SOURCE_ID, { type: 'geojson', data: EMPTY_COLLECTION });
+  map.addLayer({
+    id: 'events-points',
+    type: 'circle',
+    source: EVENTS_SOURCE_ID,
+    paint: {
+      'circle-radius': 6,
+      'circle-color': [
+        'match',
+        ['get', 'kind'],
+        'entered',
+        EVENT_COLORS.entered,
+        EVENT_COLORS.exited,
+      ],
+      'circle-stroke-color': '#ffffff',
+      'circle-stroke-width': 2,
+    },
+  });
+
   isStyleLoaded = true;
   if (pendingView) {
     render(pendingView);
+  }
+  renderEvents(pendingEventsView);
+});
+
+function formatEventTime(isoTime) {
+  return new Date(isoTime).toLocaleString();
+}
+
+map.on('click', 'events-points', (event) => {
+  if (drawState !== 'idle') {
+    return;
+  }
+
+  const feature = event.features?.[0];
+  if (!feature) {
+    return;
+  }
+
+  const { kind, areaLabel, isoTime } = feature.properties;
+  // Area names are untrusted, so the popup is built with textContent.
+  const container = document.createElement('div');
+  container.className = 'pico popup';
+  const label = document.createElement('p');
+  label.className = 'popup-label';
+  label.textContent = `${kind === 'entered' ? 'Entered' : 'Exited'} ${areaLabel} · ${formatEventTime(isoTime)}`;
+  container.append(label);
+
+  new Popup().setLngLat(feature.geometry.coordinates).setDOMContent(container).addTo(map);
+});
+
+map.on('mouseenter', 'events-points', () => {
+  map.getCanvas().style.cursor = 'pointer';
+});
+map.on('mouseleave', 'events-points', () => {
+  map.getCanvas().style.cursor = '';
+});
+
+/** `null` clears the points, which happens when no user is selected. */
+function renderEvents(view) {
+  if (!isStyleLoaded) {
+    return;
+  }
+
+  map.getSource(EVENTS_SOURCE_ID).setData(view ? view.featureCollection : EMPTY_COLLECTION);
+
+  // Frame a user's events once, when they are first selected.
+  const userId = view?.userId ?? null;
+  if (userId !== framedEventsUserId) {
+    framedEventsUserId = userId;
+    if (view?.bounds) {
+      map.fitBounds(view.bounds, { padding: 60, maxZoom: 15 });
+    }
+  }
+}
+
+function readSwappedEvents() {
+  const dataElement = document.getElementById('events-data');
+  if (!dataElement) {
+    return;
+  }
+
+  pendingEventsView = JSON.parse(dataElement.textContent);
+  renderEvents(pendingEventsView);
+}
+
+/** The server renders UTC so it never guesses a zone; show the viewer's local time instead. */
+function localizeEventTimes() {
+  for (const time of document.querySelectorAll('#events time[datetime]')) {
+    time.textContent = formatEventTime(time.dateTime);
+  }
+}
+
+document.getElementById('events').addEventListener('click', (event) => {
+  const button = event.target.closest('.event-locate');
+  if (!button) {
+    return;
+  }
+
+  map.flyTo({
+    center: [Number(button.dataset.lon), Number(button.dataset.lat)],
+    zoom: Math.max(map.getZoom(), 15),
+  });
+});
+
+// --- Areas list dialog ------------------------------------------------------
+
+const areaListDialog = document.getElementById('area-list-dialog');
+
+document.getElementById('area-list-open').addEventListener('click', () => {
+  areaListDialog.showModal();
+  window.htmx?.trigger('#area-list', 'refresh');
+});
+
+document.getElementById('area-list-close').addEventListener('click', () => areaListDialog.close());
+
+// Pico's modal fills the viewport, so a click that lands on the dialog itself is the backdrop.
+areaListDialog.addEventListener('click', (event) => {
+  if (event.target === areaListDialog) areaListDialog.close();
+});
+
+document.getElementById('area-list').addEventListener('click', (event) => {
+  const button = event.target.closest('.area-list-show');
+  if (!button) {
+    return;
+  }
+
+  areaListDialog.close();
+  map.fitBounds(JSON.parse(button.dataset.bounds), { padding: 60, maxZoom: 17 });
+});
+
+// A delete from the list refreshes #areas (and so the map); reload the list too.
+document.body.addEventListener('htmx:afterRequest', (event) => {
+  if (event.detail.elt.classList?.contains('area-list-delete') && event.detail.successful) {
+    window.htmx?.trigger('#area-list', 'refresh');
+  }
+});
+
+// Recompute replaces the user's history, so reload the list once it succeeds.
+document.body.addEventListener('htmx:afterRequest', (event) => {
+  if (event.detail.elt.id === 'recompute-form' && event.detail.successful) {
+    window.htmx?.trigger('#events', 'refresh');
   }
 });
 
 map.on('click', 'areas-fill', (event) => {
   // While drawing, a click is placing the new area, not inspecting an old one.
   if (drawState !== 'idle') {
+    return;
+  }
+  // An event point inside the area opens its own popup instead.
+  if (map.queryRenderedFeatures(event.point, { layers: ['events-points'] }).length > 0) {
     return;
   }
 
@@ -188,6 +339,12 @@ function restoreLegendState() {
 }
 
 document.body.addEventListener('htmx:afterSwap', (event) => {
+  if (event.target.id === 'events') {
+    readSwappedEvents();
+    localizeEventTimes();
+    return;
+  }
+
   if (event.target.id !== 'areas') {
     return;
   }

@@ -42,7 +42,7 @@ function fnv1a(value: string): number {
  * Distinct IDs can still collide; the legend labels every swatch rather than
  * relying on color alone.
  */
-function colorForUserId(userId: string): string {
+export function colorForUserId(userId: string): string {
   const hue = fnv1a(userId) % 360;
   // Salted separately so lightness does not simply track the hue.
   const lightness =
@@ -86,16 +86,35 @@ export type AreaMapView = {
   bounds?: [number, number, number, number];
 };
 
+/** Degrees of latitude and longitude a circle of `radius` meters spans either side of its center. */
+function circleDeltas(
+  lat: number,
+  radius: number,
+): { latitudeDelta: number; longitudeDelta: number } {
+  const latitudeDelta = (radius / EARTH_RADIUS_METERS) * (180 / Math.PI);
+  // Lines of longitude converge toward the poles, so a fixed ground distance
+  // spans more degrees of longitude the further from the equator it sits.
+  const longitudeDelta = latitudeDelta / Math.cos((lat * Math.PI) / 180);
+  return { latitudeDelta, longitudeDelta };
+}
+
+/** `[west, south, east, north]` enclosing one circular area. */
+export function circleBounds(
+  lat: number,
+  lon: number,
+  radius: number,
+): [number, number, number, number] {
+  const { latitudeDelta, longitudeDelta } = circleDeltas(lat, radius);
+  return [lon - longitudeDelta, lat - latitudeDelta, lon + longitudeDelta, lat + latitudeDelta];
+}
+
 /**
  * Approximates a circle of `radius` meters around a center as a closed polygon
  * ring. MapLibre's `circle` layer sizes its radius in pixels, so a real-world
  * radius has to be baked into the geometry instead.
  */
 function circleToRing(lat: number, lon: number, radius: number): Position[] {
-  const latitudeDelta = (radius / EARTH_RADIUS_METERS) * (180 / Math.PI);
-  // Lines of longitude converge toward the poles, so a fixed ground distance
-  // spans more degrees of longitude the further from the equator it sits.
-  const longitudeDelta = latitudeDelta / Math.cos((lat * Math.PI) / 180);
+  const { latitudeDelta, longitudeDelta } = circleDeltas(lat, radius);
 
   const ring: Position[] = [];
   for (let vertex = 0; vertex < CIRCLE_VERTICES; vertex += 1) {

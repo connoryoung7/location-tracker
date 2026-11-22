@@ -7,9 +7,20 @@ import type {
   WaypointPayload,
 } from '@/domain/types.ts';
 import type { GeofenceEvent } from '@/domain/events.ts';
-import type { LocationRepository, TrackedUserRepository } from '@/domain/ports.ts';
+import type {
+  AreaEventRepository,
+  LocationRepository,
+  TrackedUserRepository,
+} from '@/domain/ports.ts';
+import {
+  DEFAULT_AREA_EVENT_LIMIT,
+  toGeofenceEvent,
+  type AreaEventRow,
+} from '@/repository/location-repository/area-event-row.ts';
 
-export class SqliteLocationRepository implements LocationRepository, TrackedUserRepository {
+export class SqliteLocationRepository
+  implements LocationRepository, TrackedUserRepository, AreaEventRepository
+{
   private db: Database;
 
   private queue: Promise<unknown> = Promise.resolve();
@@ -184,6 +195,19 @@ export class SqliteLocationRepository implements LocationRepository, TrackedUser
         );
       return before.count;
     })();
+  }
+
+  async listAreaEvents(
+    userId: string,
+    { limit = DEFAULT_AREA_EVENT_LIMIT }: { limit?: number } = {},
+  ): Promise<GeofenceEvent[]> {
+    const rows = this.db
+      .query(
+        `SELECT type, user_id, area_id, area_name, lat, lon, tst FROM area_events
+         WHERE user_id = ? ORDER BY tst DESC, id DESC LIMIT ?`,
+      )
+      .all(userId, limit) as AreaEventRow[];
+    return rows.map(toGeofenceEvent);
   }
 
   async listUserIds(): Promise<string[]> {

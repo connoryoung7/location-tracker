@@ -38,6 +38,35 @@ test('history orders ties, filters users/ranges, replacement is atomic and repea
   }
 });
 
+test("lists one user's area events newest first, up to the limit", async () => {
+  const db = new Database(':memory:');
+  runMigrations(db);
+  const repo = new SqliteLocationRepository(db);
+  try {
+    const event: GeofenceEvent = {
+      _type: 'area.entered',
+      userId: 'u',
+      areaId: 'a',
+      lat: 1.5,
+      lon: 2.5,
+      tst: 10,
+    };
+    repo.saveAreaEvent(event);
+    repo.saveAreaEvent({ ...event, _type: 'area.exited', areaName: 'Home', tst: 30 });
+    repo.saveAreaEvent({ ...event, tst: 20 });
+    repo.saveAreaEvent({ ...event, userId: 'v', tst: 40 });
+
+    expect(await repo.listAreaEvents('u', { limit: 2 })).toEqual([
+      { ...event, _type: 'area.exited', areaName: 'Home', tst: 30 },
+      { ...event, tst: 20 },
+    ]);
+    expect(await repo.listAreaEvents('u')).toHaveLength(3);
+    expect(await repo.listAreaEvents('nobody')).toEqual([]);
+  } finally {
+    db.close();
+  }
+});
+
 test('SQLite replay state rolls back with events and live writes wait outside replay', async () => {
   const db = new Database(':memory:');
   runMigrations(db);

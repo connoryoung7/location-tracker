@@ -496,3 +496,185 @@ body {
     position: static;
   }
 }
+
+/* ---------- Panel header with an action ---------- */
+
+.pico .panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.pico .panel-header h2 {
+  margin: 0;
+}
+
+.pico .panel-header button {
+  margin: 0;
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--text-sm);
+}
+
+/* ---------- Recent events ---------- */
+
+.pico #events-filter label {
+  margin-bottom: var(--space-2);
+}
+
+.pico .events-empty {
+  margin: 0;
+  font-size: var(--text-md);
+  color: var(--muted);
+}
+
+/* Matches the point colours in `EVENT_COLORS` in app.js. */
+.event-entered {
+  --event-color: #16a34a;
+}
+
+.event-exited {
+  --event-color: #dc2626;
+}
+
+.pico .event-list {
+  max-height: 40vh;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+}
+
+.pico .event-list li {
+  list-style: none;
+  margin: 0;
+}
+
+.pico .event-locate {
+  --pico-background-color: transparent;
+  --pico-border-color: transparent;
+  --pico-color: var(--pico-color);
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0 var(--space-2);
+  width: 100%;
+  margin: 0;
+  padding: var(--space-2) var(--space-2) var(--space-2) var(--space-3);
+  border-left: 3px solid var(--event-color);
+  border-radius: var(--radius-sm);
+  box-shadow: none;
+  font-size: var(--text-md);
+  text-align: left;
+}
+
+.pico .event-locate:is(:hover, :focus-visible) {
+  --pico-background-color: var(--surface-sunken);
+}
+
+.event-kind {
+  font-weight: 600;
+  color: var(--event-color);
+}
+
+.event-area {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.event-locate time {
+  grid-column: 1 / -1;
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+/* ---------- Areas list dialog ---------- */
+
+.pico #area-list-dialog article {
+  width: min(48rem, calc(100vw - 2rem));
+  max-width: none;
+}
+
+.pico #area-list-dialog h3 {
+  margin: 0;
+  font-size: 1.0625rem;
+}
+
+.pico #area-list {
+  overflow-x: auto;
+}
+
+.pico .area-list-count {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+
+.pico .area-list {
+  margin: 0;
+  font-size: var(--text-md);
+}
+
+.pico .area-list :is(th, td) {
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.pico .area-list thead th {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.pico .area-list-name {
+  max-width: 16rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.area-list-user {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.area-list-number {
+  font-variant-numeric: tabular-nums;
+}
+
+.pico .area-list-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+.pico .area-list-actions button {
+  margin: 0;
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--text-sm);
+}
+
+/* Same treatment as the map popup's Delete. */
+.pico .area-list-delete {
+  --pico-background-color: transparent;
+  --pico-border-color: var(--tone-error);
+  --pico-color: var(--tone-error);
+}
+
+.pico .area-list-delete:is(:hover, :focus-visible) {
+  --pico-background-color: var(--tone-error);
+  --pico-color: var(--surface-raised);
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}

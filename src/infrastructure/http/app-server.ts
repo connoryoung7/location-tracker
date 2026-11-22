@@ -2,9 +2,12 @@ import express from 'express';
 import escapeHtml from 'escape-html';
 import { dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { buildAreaEventView, type AreaEventView } from '@/application/build-area-event-view.ts';
+import { buildAreaListView, type AreaListView } from '@/application/build-area-list-view.ts';
 import { buildAreaMapView, type AreaMapView } from '@/application/build-area-map-view.ts';
 import { CreateAreaSchema } from '@/domain/schemas.ts';
 import type {
+  AreaEventRepository,
   AreaRepository,
   Logger,
   MetricsCollector,
@@ -20,6 +23,7 @@ export interface AppDeps {
   users: TrackedUserRepository;
   recompute?: (userId: string) => Promise<{ locations: number; before: number; after: number }>;
   areaRepo: AreaRepository;
+  areaEvents: AreaEventRepository;
   logger: Logger;
   metrics: MetricsCollector;
 }
@@ -79,6 +83,100 @@ function renderAreasError(): string {
   return `<p class="notice legend-error" data-tone="error" role="alert">Could not reach the area store. Retrying…</p>`;
 }
 
+function formatCoordinate(value: number): string {
+  return value.toFixed(5);
+}
+
+function renderAreaListFragment(view: AreaListView): string {
+  if (view.rows.length === 0) {
+    return '<p class="legend-empty">No areas defined yet.</p>';
+  }
+
+  const rows = view.rows
+    .map(
+      (row) => `
+        <tr>
+          <th scope="row" class="area-list-name">${escapeHtml(row.name)}</th>
+          <td>
+            <span class="area-list-user">
+              <span class="legend-swatch" style="background:${escapeHtml(row.color)}"></span>
+              ${escapeHtml(row.userId)}
+            </span>
+          </td>
+          <td class="area-list-number">${formatCoordinate(row.lat)}, ${formatCoordinate(row.lon)}</td>
+          <td class="area-list-number">${Math.round(row.radius)} m</td>
+          <td class="area-list-actions">
+            <button type="button" class="area-list-show secondary outline" data-bounds="${escapeHtml(JSON.stringify(row.bounds))}">Show</button>
+            <button
+              type="button"
+              class="area-list-delete outline"
+              hx-delete="/areas/${encodeURIComponent(row.userId)}/${encodeURIComponent(row.areaId)}"
+              hx-target="#areas"
+              hx-swap="innerHTML"
+              hx-confirm="${escapeHtml(`Delete "${row.name}"?`)}"
+            >Delete</button>
+          </td>
+        </tr>`,
+    )
+    .join('');
+
+  return `
+    <p class="area-list-count">${view.rows.length} ${view.rows.length === 1 ? 'area' : 'areas'}</p>
+    <table class="area-list">
+      <thead>
+        <tr><th scope="col">Name</th><th scope="col">User</th><th scope="col">Centre</th><th scope="col">Radius</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+  `;
+}
+
+/** How many of the selected user's most recent events the panel shows. */
+const EVENT_LIST_LIMIT = 100;
+
+function renderEventsFragment(view: AreaEventView): string {
+  const rows = view.rows
+    .map(
+      (row) => `
+      <li class="event-row event-${row.kind}">
+        <button type="button" class="event-locate" data-lon="${row.lon}" data-lat="${row.lat}">
+          <span class="event-kind">${row.kind === 'entered' ? 'Entered' : 'Exited'}</span>
+          <span class="event-area">${escapeHtml(row.areaLabel)}</span>
+          <time datetime="${row.isoTime}">${row.isoTime}</time>
+        </button>
+      </li>`,
+    )
+    .join('');
+
+  const emptyState =
+    view.rows.length === 0 ? '<p class="events-empty">No events for this user yet.</p>' : '';
+
+  return `
+    ${emptyState}
+    <ol class="event-list">${rows}</ol>
+    <script type="application/json" id="events-data">${escapeJsonForScript(view)}</script>
+  `;
+}
+
+/**
+ * Shown before a user is chosen. Carries an empty `events-data` block so the map
+ * drops the previous user's points instead of leaving them behind.
+ */
+function renderEventsPrompt(): string {
+  return `
+    <p class="events-empty">Select a user to see their events.</p>
+    <script type="application/json" id="events-data">null</script>
+  `;
+}
+
+/**
+ * Like the areas error, it carries no `events-data` block, so the map keeps the
+ * points it last rendered until the next poll succeeds.
+ */
+function renderEventsError(): string {
+  return `<p class="notice legend-error" data-tone="error" role="alert">Could not load events. Retrying…</p>`;
+}
+
 /**
  * Out-of-band element carrying the draw form's error text. Sent alongside the
  * legend so a rejected area reports itself without blanking the sidebar; empty
@@ -124,7 +222,10 @@ function renderPage(): string {
       </header>
 
       <section class="panel" aria-labelledby="areas-heading">
-        <h2 id="areas-heading">Areas</h2>
+        <div class="panel-header">
+          <h2 id="areas-heading">Areas</h2>
+          <button type="button" id="area-list-open" class="secondary outline">List areas</button>
+        </div>
         <div
           id="areas"
           hx-get="/fragments/areas"
@@ -177,10 +278,25 @@ function renderPage(): string {
         <p id="form-error" class="notice" data-tone="error" role="status"></p>
       </section>
 
+      <section class="panel" id="events-panel" aria-labelledby="events-heading">
+        <h2 id="events-heading">Recent events</h2>
+        <form id="events-filter">
+          <label>User <select name="userId" data-user-select disabled><option value="">Loading users…</option></select></label>
+        </form>
+        <!-- Refreshed when the user changes, after a recompute, and on the same poll as the areas. -->
+        <div
+          id="events"
+          hx-get="/fragments/events"
+          hx-include="#events-filter"
+          hx-trigger="load, change from:#events-filter, refresh, every ${REFRESH_INTERVAL}"
+          hx-swap="innerHTML"
+        ></div>
+      </section>
+
       <section class="panel" aria-labelledby="recompute-heading">
         <h2 id="recompute-heading">Event history</h2>
         <p class="panel-hint">Rebuild a user's entry and exit events from their stored locations and the current areas.</p>
-        <form class="recompute-form" hx-post="/users/recompute" hx-target="#recompute-result" hx-confirm="Replace this user's event history using current areas?" hx-disabled-elt="find button">
+        <form id="recompute-form" class="recompute-form" hx-post="/users/recompute" hx-target="#recompute-result" hx-confirm="Replace this user's event history using current areas?" hx-disabled-elt="find button">
           <label>User <select name="userId" required data-user-select disabled><option value="">Loading users…</option></select></label>
           <button type="submit" class="secondary" data-user-submit disabled>Recompute events</button>
           <span class="htmx-indicator" aria-busy="true">Recomputing…</span>
@@ -188,6 +304,17 @@ function renderPage(): string {
         <p id="user-status" class="notice" data-tone="info" role="status"></p>
         <p id="recompute-result" class="notice" data-tone="info" role="status"></p>
       </section>
+
+      <!-- Loaded each time it opens, so it never shows a stale copy of the poll. -->
+      <dialog id="area-list-dialog" aria-labelledby="area-list-title">
+        <article>
+          <header>
+            <button type="button" id="area-list-close" aria-label="Close" rel="prev"></button>
+            <h3 id="area-list-title">All areas</h3>
+          </header>
+          <div id="area-list" hx-get="/fragments/area-list" hx-trigger="refresh" hx-swap="innerHTML"></div>
+        </article>
+      </dialog>
 
       <dialog id="confirm-dialog" aria-labelledby="confirm-title" aria-describedby="confirm-message">
         <article>
@@ -250,6 +377,39 @@ export function createAppServer(deps: AppDeps) {
 
   app.get('/fragments/areas', async (_req, res) => {
     await sendAreasFragment(res);
+  });
+
+  app.get('/fragments/area-list', async (_req, res) => {
+    try {
+      const areas = await deps.areaRepo.listAllAreas();
+      res.type('html').send(renderAreaListFragment(buildAreaListView(areas)));
+    } catch (error) {
+      deps.logger.error('Failed to load the area list', error);
+      res.status(503).type('html').send(renderAreasError());
+    }
+  });
+
+  app.get('/fragments/events', async (req, res) => {
+    const userId = req.query.userId;
+    if (typeof userId !== 'string' || !userId.trim()) {
+      res.type('html').send(renderEventsPrompt());
+      return;
+    }
+    if (userId.length > 64) {
+      res
+        .status(422)
+        .type('html')
+        .send('<p class="notice legend-error" data-tone="error" role="alert">Unknown user.</p>');
+      return;
+    }
+
+    try {
+      const events = await deps.areaEvents.listAreaEvents(userId, { limit: EVENT_LIST_LIMIT });
+      res.type('html').send(renderEventsFragment(buildAreaEventView(userId, events)));
+    } catch (error) {
+      deps.logger.error('Failed to load events', error);
+      res.status(503).type('html').send(renderEventsError());
+    }
   });
 
   app.get('/users', async (_req, res) => {

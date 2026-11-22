@@ -43,6 +43,7 @@ if (await waitForRedis(redis)) {
 const app = createAppServer({
   users: repo,
   areaRepo,
+  areaEvents: repo,
   logger,
   metrics,
   recompute: (userId) =>

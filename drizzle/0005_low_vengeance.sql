@@ -1,0 +1,1 @@
+CREATE INDEX `area_events_user_id_tst_idx` ON `area_events` (`user_id`,`tst`);

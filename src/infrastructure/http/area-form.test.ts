@@ -8,7 +8,12 @@ import {
 } from 'happy-dom';
 import { createAreaForm, updateUserSelects } from '@/../public/area-form.js';
 import { createAppServer } from '@/infrastructure/http/app-server.ts';
-import { mockAreaRepository, mockLogger, mockMetricsCollector } from '@/test/mocks.ts';
+import {
+  mockAreaEventRepository,
+  mockAreaRepository,
+  mockLogger,
+  mockMetricsCollector,
+} from '@/test/mocks.ts';
 import type { Server } from 'node:http';
 
 let server: Server;
@@ -16,6 +21,7 @@ let page: string;
 beforeAll(async () => {
   const app = createAppServer({
     areaRepo: mockAreaRepository(),
+    areaEvents: mockAreaEventRepository(),
     users: { listUserIds: async () => [] },
     logger: mockLogger(),
     metrics: mockMetricsCollector(),
@@ -76,10 +82,11 @@ function setup(users: string[] = ['AB']) {
   };
 }
 
-test('empty, sole, and multiple users update both selects, preserve valid selection and escape IDs', () => {
+test('empty, sole, and multiple users update every user select, preserve valid selection and escape IDs', () => {
   const { document } = setup([]);
   const selects = [...document.querySelectorAll('[data-user-select]')];
-  expect(selects).toHaveLength(2);
+  // Recompute, events filter, and draw form.
+  expect(selects).toHaveLength(3);
   for (const select of selects)
     expect((select as unknown as HTMLSelectElement).disabled).toBe(true);
   updateUserSelects(document, ['AB']);
