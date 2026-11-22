@@ -48,6 +48,12 @@ export function createAreaForm(
   let isReviewing = false;
   let isSaving = false;
   let reviewed = null;
+  /** Resolves the promise `propose` returned: true once saved, false once abandoned. */
+  let settleProposal = null;
+  function settle(isSaved) {
+    settleProposal?.(isSaved);
+    settleProposal = null;
+  }
   const values = () =>
     Object.fromEntries(
       ['userId', 'name', 'lat', 'lon', 'radius'].map((key) => [
@@ -83,7 +89,26 @@ export function createAreaForm(
       radius <= 100000;
     preview(valid ? [lon, lat] : null, valid ? radius : 0);
   }
+  function open() {
+    form.hidden = false;
+    root.getElementById('draw-start').hidden = true;
+    error.textContent = '';
+    edit();
+  }
+  function review(data) {
+    reviewed = data;
+    root.getElementById('draw-summary').textContent =
+      `${data.name} — User: ${data.userId}; Latitude: ${data.lat}; Longitude: ${data.lon}; Radius: ${data.radius} metres.`;
+    isReviewing = true;
+    editingChanged(false);
+    fields.hidden = true;
+    confirmation.hidden = false;
+    submit.textContent = 'Confirm and create';
+    error.textContent = '';
+    updatePreview();
+  }
   function close() {
+    settle(false);
     edit();
     form.reset();
     form.hidden = true;
@@ -93,10 +118,7 @@ export function createAreaForm(
     cancelled();
   }
   root.getElementById('draw-start').addEventListener('click', () => {
-    form.hidden = false;
-    root.getElementById('draw-start').hidden = true;
-    error.textContent = '';
-    edit();
+    open();
     placement.value = 'map';
     coordinates.open = false;
     root.getElementById('draw-placement-hint').textContent =
@@ -146,16 +168,7 @@ export function createAreaForm(
       return;
     }
     if (!isReviewing || JSON.stringify(data) !== JSON.stringify(reviewed)) {
-      reviewed = data;
-      root.getElementById('draw-summary').textContent =
-        `${data.name} — User: ${data.userId}; Latitude: ${data.lat}; Longitude: ${data.lon}; Radius: ${data.radius} metres.`;
-      isReviewing = true;
-      editingChanged(false);
-      fields.hidden = true;
-      confirmation.hidden = false;
-      submit.textContent = 'Confirm and create';
-      error.textContent = '';
-      updatePreview();
+      review(data);
       return;
     }
     isSaving = true;
@@ -176,6 +189,7 @@ export function createAreaForm(
               : 'Could not create area. Your draft has been kept.'),
         );
       }
+      settle(true);
       close();
       saved();
     } catch (failure) {
@@ -196,6 +210,40 @@ export function createAreaForm(
         Math.max(0.01, Math.round(radius * 100) / 100),
       );
       updatePreview();
+    },
+    /**
+     * Opens a pre-filled draft, e.g. for a place the user keeps visiting, at the
+     * review step when it is complete and at the first missing field otherwise.
+     * Nothing is saved until the user confirms, as with a drawn area. The promise
+     * resolves true once the area is created, or false if the draft is cancelled
+     * or replaced by another proposal.
+     */
+    propose({ userId, name, lat, lon, radius }) {
+      if (isSaving) return Promise.resolve(false);
+      settle(false);
+      open();
+      placement.value = 'coordinates';
+      coordinates.open = true;
+      root.getElementById('draw-placement-hint').textContent =
+        'Centred on the place visited. Adjust the name or circle if needed, then choose Review area.';
+      for (const [key, value] of Object.entries({ userId, name, lat, lon, radius })) {
+        form.elements.namedItem(key).value = String(value);
+      }
+      placementChanged('coordinates');
+      updatePreview();
+      // An unnamed place, or a user missing from the list, needs an answer first.
+      const missing = ['name', 'userId']
+        .map((key) => form.elements.namedItem(key))
+        .find((field) => !field.value);
+      if (missing) {
+        missing.focus();
+      } else if (form.checkValidity()) {
+        review(values());
+        submit.focus();
+      }
+      return new Promise((resolve) => {
+        settleProposal = resolve;
+      });
     },
   };
 }

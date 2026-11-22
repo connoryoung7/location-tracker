@@ -70,6 +70,24 @@ become one place with five visits. Each place is then named:
 Every name is a guess. A visit to a friend's flat above a café reads as the
 café.
 
+### Saving a place as an area
+
+Every place that is not already inside one of the user's areas asks **Make this
+a saved area?** Choosing **Save as area** opens a draft in the New area form and
+flies the map to it. The draft is filled in for you:
+
+- **Name:** the best guess. A place with nothing named nearby has no name yet,
+  so the form waits on the Name field.
+- **Centre:** the middle of the place's visits.
+- **Radius:** 100 m (the stop radius) beyond the visit farthest from the
+  centre, rounded up to the next 10 m. That circle would have held every visit.
+
+A complete draft opens on the Review step, so one more click, **Confirm and
+create**, saves it; **Back to editing** changes the name or circle first, and
+**Cancel** drops it. Nothing is saved until you confirm. Once saved, the row
+says so, and the next **Find places** names the spot after the new area and
+stops looking it up online.
+
 ### Being polite to a shared server
 
 The public Overpass instance is free and shared, and is sometimes slow. A run:

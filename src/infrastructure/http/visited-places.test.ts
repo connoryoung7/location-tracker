@@ -36,7 +36,7 @@ function fakeMap() {
   };
 }
 
-function setup({ isDrawing = false } = {}) {
+function setup({ isDrawing = false, isSaved = true } = {}) {
   const document = new Window().document;
   document.body.innerHTML = '<div id="places"></div>';
   const map = fakeMap();
@@ -56,7 +56,13 @@ function setup({ isDrawing = false } = {}) {
       return this;
     }
   }
-  attachVisitedPlaces(map, { Popup: MockPopup, isDrawing: () => isDrawing, root: document });
+  const proposeArea = mock(async (_draft: Record<string, string>) => isSaved);
+  attachVisitedPlaces(map, {
+    Popup: MockPopup,
+    isDrawing: () => isDrawing,
+    proposeArea,
+    root: document,
+  });
   const list = document.getElementById('places')!;
 
   /** What htmx does when a places fragment arrives. */
@@ -66,10 +72,15 @@ function setup({ isDrawing = false } = {}) {
   };
   const fragment = (view: unknown) =>
     `<ol><li><button class="place-locate" data-lon="-71.04" data-lat="42.37">
-      <time datetime="2023-11-14T22:43:20.000Z">2023-11-14T22:43:20.000Z</time></button></li></ol>
+      <time datetime="2023-11-14T22:43:20.000Z">2023-11-14T22:43:20.000Z</time></button>
+      <p class="place-propose">Make this a saved area?
+        <button class="place-save-area" data-user-id="AB" data-name="Fresh Market" data-lat="42.37"
+          data-lon="-71.04" data-radius="100">Save as area</button></p></li></ol>
      <script type="application/json" id="places-data">${JSON.stringify(view)}</script>`;
 
-  return { document, map, popups, list, swap, fragment };
+  const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+  return { document, map, popups, list, swap, fragment, proposeArea, flush };
 }
 
 describe('attachVisitedPlaces', () => {
@@ -128,6 +139,37 @@ describe('attachVisitedPlaces', () => {
     (list.querySelector('.place-locate') as unknown as { click(): void }).click();
 
     expect(map.flyTo).toHaveBeenCalledWith({ center: [-71.04, 42.37], zoom: 16 });
+  });
+
+  test('saving a place as an area hands its draft over and confirms once saved', async () => {
+    const { map, list, swap, fragment, proposeArea, flush } = setup();
+    map.fire('load');
+    swap(fragment(VIEW));
+
+    (list.querySelector('.place-save-area') as unknown as { click(): void }).click();
+    await flush();
+
+    expect(proposeArea).toHaveBeenCalledWith({
+      userId: 'AB',
+      name: 'Fresh Market',
+      lat: '42.37',
+      lon: '-71.04',
+      radius: '100',
+    });
+    expect(list.querySelector('.place-propose')!.textContent).toBe('Saved as an area.');
+    // The button is not inside the row's locate button, so it does not also fly there.
+    expect(map.flyTo).not.toHaveBeenCalled();
+  });
+
+  test('keeps asking when the draft is abandoned', async () => {
+    const { map, list, swap, fragment, flush } = setup({ isSaved: false });
+    map.fire('load');
+    swap(fragment(VIEW));
+
+    (list.querySelector('.place-save-area') as unknown as { click(): void }).click();
+    await flush();
+
+    expect(list.querySelector('.place-save-area')).not.toBeNull();
   });
 
   test('a point opens a popup that treats names as text', () => {

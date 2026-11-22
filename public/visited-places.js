@@ -1,7 +1,8 @@
 /**
  * Map layer and list behaviour for the Places visited panel. Kept apart from
  * app.js: it owns its own source, layer, popup, and fragment handling, and
- * only needs the map and a way to tell whether a click belongs to drawing.
+ * only needs the map, a way to tell whether a click belongs to drawing, and a
+ * way to open an area draft for a place.
  */
 
 const SOURCE_ID = 'visited-places';
@@ -14,7 +15,11 @@ function formatTime(isoTime) {
   return new Date(isoTime).toLocaleString();
 }
 
-export function attachVisitedPlaces(map, { Popup, isDrawing, root = document }) {
+/**
+ * `proposeArea(draft)` opens a pre-filled area draft and resolves true once
+ * the user saves it, false if they abandon it.
+ */
+export function attachVisitedPlaces(map, { Popup, isDrawing, proposeArea, root = document }) {
   /** Latest view from the server, held until the style finishes loading. */
   let pendingView = null;
   let isLoaded = false;
@@ -84,7 +89,18 @@ export function attachVisitedPlaces(map, { Popup, isDrawing, root = document }) 
 
   const list = root.getElementById('places');
 
-  list.addEventListener('click', (event) => {
+  list.addEventListener('click', async (event) => {
+    const save = event.target.closest('.place-save-area');
+    if (save) {
+      const { userId, name, lat, lon, radius } = save.dataset;
+      const prompt = save.closest('.place-propose');
+      if (await proposeArea({ userId, name, lat, lon, radius })) {
+        // The next Find places names it after the area; until then, say it is done.
+        prompt.replaceChildren('Saved as an area.');
+      }
+      return;
+    }
+
     const button = event.target.closest('.place-locate');
     if (!button) return;
 

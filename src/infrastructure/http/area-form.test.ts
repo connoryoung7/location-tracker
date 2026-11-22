@@ -208,3 +208,55 @@ test('moving the draft synchronizes coordinates, locks review, and saves only th
     radius: '250',
   });
 });
+
+const PROPOSAL = { userId: 'AB', name: 'Fresh Market', lat: '42.37', lon: '-71.04', radius: '100' };
+
+test('a proposed place opens at review with its circle and saves only once confirmed', async () => {
+  const { byId, document, form, submit, request, preview, placementChanged, saved, controller } =
+    setup();
+
+  const proposal = controller.propose(PROPOSAL);
+
+  expect(form.hidden).toBe(false);
+  expect(byId('draw-start').hidden).toBe(true);
+  expect(placementChanged).toHaveBeenLastCalledWith('coordinates');
+  expect(preview).toHaveBeenLastCalledWith([-71.04, 42.37], 100);
+  expect(byId('draw-confirmation').hidden).toBe(false);
+  expect(byId('draw-summary').textContent).toContain('Fresh Market — User: AB');
+  expect(document.activeElement).toBe(byId('draw-submit'));
+  expect(request).not.toHaveBeenCalled();
+
+  await submit();
+
+  expect(JSON.parse(request.mock.calls[0]![1]!.body as string)).toEqual(PROPOSAL);
+  expect(saved).toHaveBeenCalledTimes(1);
+  expect(await proposal).toBe(true);
+});
+
+test('an unnamed place waits for a name, and cancelling saves nothing', async () => {
+  const { byId, document, form, request, controller } = setup();
+
+  const proposal = controller.propose({ ...PROPOSAL, name: '' });
+
+  expect(byId('draw-fields').hidden).toBe(false);
+  expect(byId('draw-confirmation').hidden).toBe(true);
+  expect(document.activeElement).toBe(form.elements.namedItem('name') as unknown as HTMLElement);
+  expect((form.elements.namedItem('radius') as HTMLInputElement).value).toBe('100');
+
+  byId('draw-cancel').click();
+
+  expect(await proposal).toBe(false);
+  expect(form.hidden).toBe(true);
+  expect(request).not.toHaveBeenCalled();
+});
+
+test('a new proposal replaces the previous one', async () => {
+  const { form, controller } = setup();
+
+  const first = controller.propose(PROPOSAL);
+  controller.propose({ ...PROPOSAL, name: 'Gym', lat: '40' });
+
+  expect(await first).toBe(false);
+  expect((form.elements.namedItem('name') as HTMLInputElement).value).toBe('Gym');
+  expect((form.elements.namedItem('lat') as HTMLInputElement).value).toBe('40');
+});
