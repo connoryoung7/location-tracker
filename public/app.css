@@ -630,8 +630,9 @@ body {
 
 /* ---------- Places visited ---------- */
 
-/* Matches `PLACE_COLOR` in visited-places.js. */
-.pico #places-panel {
+/* Matches `PLACE_COLOR` in visited-places.js. Popups sit on the map, outside the panel. */
+.pico #places-panel,
+.pico.popup {
   --place-color: #7c3aed;
 }
 
@@ -794,6 +795,20 @@ body {
   margin: 0;
   font-size: var(--text-sm);
   color: var(--muted);
+}
+
+.pico.popup .popup-save-area {
+  --pico-background-color: transparent;
+  --pico-border-color: var(--place-color);
+  --pico-color: var(--place-color);
+  margin: var(--space-2) 0 0;
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--text-sm);
+}
+
+.pico.popup .popup-save-area:is(:hover, :focus-visible) {
+  --pico-background-color: var(--place-color);
+  --pico-color: var(--surface-raised);
 }
 
 /* ---------- Areas list dialog ---------- */

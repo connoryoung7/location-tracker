@@ -23,6 +23,51 @@ export function attachVisitedPlaces(map, { Popup, isDrawing, proposeArea, root =
   /** Latest view from the server, held until the style finishes loading. */
   let pendingView = null;
   let isLoaded = false;
+  /** Places of the current view saved as areas; a new view starts over. */
+  let savedPlaceIds = new Set();
+  /** The place popup last opened. Its content describes one view, so it closes with it. */
+  let openPopup = null;
+  /** Counts views. Each view's points carry its number as `viewGeneration`. */
+  let viewGeneration = 0;
+  const SAVED_MESSAGE = 'Saved as an area.';
+  const list = root.getElementById('places');
+
+  function findRow(view, placeId) {
+    return view?.rows.find((row) => row.placeId === placeId);
+  }
+
+  function closePopup() {
+    openPopup?.remove();
+    openPopup = null;
+  }
+
+  /**
+   * Opens the place's area draft, from the list or a popup alike. Once it is
+   * saved, the list row says so and later popups for it do too. The next Find
+   * places names it after the area.
+   *
+   * `view` is the result the button came from. Place IDs restart with every
+   * result, so a button from an older one, or for a place already saved, does
+   * nothing rather than propose some other place.
+   */
+  async function saveAsArea(placeId, view) {
+    if (view !== pendingView || savedPlaceIds.has(placeId)) return;
+    const row = findRow(view, placeId);
+    if (!row?.proposedArea) return;
+
+    // The draft's circle and centre marker would sit right under the popup. No
+    // other popup can open meanwhile: points ignore clicks while drawing.
+    closePopup();
+    const isSaved = await proposeArea({ userId: view.userId, ...row.proposedArea });
+    // A newer result replaced the rows, and its place IDs mean different places.
+    if (!isSaved || view !== pendingView) return;
+    savedPlaceIds.add(placeId);
+    for (const button of list.querySelectorAll('.place-save-area')) {
+      if (button.dataset.placeId === placeId) {
+        button.closest('.place-propose').replaceChildren(SAVED_MESSAGE);
+      }
+    }
+  }
 
   map.on('load', () => {
     map.addSource(SOURCE_ID, { type: 'geojson', data: EMPTY_COLLECTION });
@@ -58,8 +103,11 @@ export function attachVisitedPlaces(map, { Popup, isDrawing, proposeArea, root =
 
     const feature = event.features?.[0];
     if (!feature) return;
+    // setData applies asynchronously, so an older view's points stay clickable
+    // for a moment. Their place IDs would name different places in this view.
+    if (feature.properties.viewGeneration !== viewGeneration) return;
 
-    const { label, category, note, visitCount, durationLabel } = feature.properties;
+    const { placeId, label, category, note, visitCount, durationLabel } = feature.properties;
     // Place names come from OpenStreetMap and area names from users: both untrusted.
     const container = root.createElement('div');
     container.className = 'pico popup';
@@ -77,7 +125,27 @@ export function attachVisitedPlaces(map, { Popup, isDrawing, proposeArea, root =
       .join(' · ');
     container.append(title, detail);
 
-    new Popup().setLngLat(feature.geometry.coordinates).setDOMContent(container).addTo(map);
+    const view = pendingView;
+    const row = findRow(view, placeId);
+    if (savedPlaceIds.has(placeId)) {
+      const saved = root.createElement('p');
+      saved.className = 'popup-detail';
+      saved.textContent = SAVED_MESSAGE;
+      container.append(saved);
+    } else if (row?.proposedArea) {
+      const save = root.createElement('button');
+      save.type = 'button';
+      save.className = 'popup-save-area outline';
+      save.textContent = 'Save as area';
+      save.addEventListener('click', () => saveAsArea(placeId, view));
+      container.append(save);
+    }
+
+    closePopup();
+    openPopup = new Popup()
+      .setLngLat(feature.geometry.coordinates)
+      .setDOMContent(container)
+      .addTo(map);
   });
 
   map.on('mouseenter', PLACES_LAYER_ID, () => {
@@ -87,17 +155,11 @@ export function attachVisitedPlaces(map, { Popup, isDrawing, proposeArea, root =
     map.getCanvas().style.cursor = '';
   });
 
-  const list = root.getElementById('places');
-
-  list.addEventListener('click', async (event) => {
+  list.addEventListener('click', (event) => {
     const save = event.target.closest('.place-save-area');
     if (save) {
-      const { userId, name, lat, lon, radius } = save.dataset;
-      const prompt = save.closest('.place-propose');
-      if (await proposeArea({ userId, name, lat, lon, radius })) {
-        // The next Find places names it after the area; until then, say it is done.
-        prompt.replaceChildren('Saved as an area.');
-      }
+      // The list and pendingView are swapped together, so the row is from this view.
+      saveAsArea(save.dataset.placeId, pendingView);
       return;
     }
 
@@ -122,6 +184,12 @@ export function attachVisitedPlaces(map, { Popup, isDrawing, proposeArea, root =
     const dataElement = root.getElementById('places-data');
     if (!dataElement) return;
     pendingView = JSON.parse(dataElement.textContent);
+    viewGeneration += 1;
+    for (const feature of pendingView.featureCollection.features) {
+      feature.properties.viewGeneration = viewGeneration;
+    }
+    savedPlaceIds = new Set();
+    closePopup();
     show(pendingView);
   });
 }

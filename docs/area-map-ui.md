@@ -200,8 +200,9 @@ the server's locale.
 
 The Places visited panel finds where a user stopped for 5 minutes or more and
 names each spot from their areas or from nearby OpenStreetMap places. Any place
-that is not yet an area offers **Save as area**, which opens a pre-filled draft in
-the New area form for review. See [visited-places.md](visited-places.md).
+that is not yet an area offers **Save as area** in its list row and its map
+popup, which opens a pre-filled draft in the New area form for review. See
+[visited-places.md](visited-places.md).
 
 ## Recomputing event history
 

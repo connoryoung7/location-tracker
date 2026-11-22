@@ -345,10 +345,14 @@ describe('GET /fragments/places', () => {
 
     expect(html).toContain('Make this a saved area?');
     const button = html.match(/<button[^>]*class="place-save-area[^>]*>/)![0];
-    expect(button).toContain('data-user-id="AB"');
-    expect(button).toContain('data-name="Fresh Market"');
-    expect(button).toContain('data-lat="42.37" data-lon="-71.04"');
-    expect(button).toContain('data-radius="100"');
+    expect(button).toContain('data-place-id="place-1"');
+    // The list button and the map popup both read the draft from the data block.
+    expect(readPlacesData(html).rows[0].proposedArea).toEqual({
+      name: 'Fresh Market',
+      lat: 42.37,
+      lon: -71.04,
+      radius: 100,
+    });
   });
 
   test('does not offer to save a place that is already an area', async () => {
@@ -394,8 +398,8 @@ describe('GET /fragments/places', () => {
     const html = await fetch(`${baseUrl}/fragments/places?userId=AB`).then((res) => res.text());
 
     expect(html).not.toContain('<img');
-    expect(html).toContain('data-name="&lt;/script&gt;&lt;img');
     expect(readPlacesData(html).rows[0].label).toBe(hostile);
+    expect(readPlacesData(html).rows[0].proposedArea.name).toBe(hostile);
   });
 
   test('says so when the user made no stops', async () => {
