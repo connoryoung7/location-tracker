@@ -216,6 +216,36 @@ describe('attachVisitedPlaces', () => {
     expect(clickPoint('place-1').content!.textContent).toContain('Saved as an area.');
   });
 
+  test('a new result closes an open popup, and its stale button proposes nothing', async () => {
+    const { map, swap, fragment, proposeArea, flush, clickPoint } = setup();
+    map.fire('load');
+    swap(fragment(VIEW));
+    const stale = clickPoint('place-1');
+
+    // Same IDs, but place-1 is now someone else's place.
+    swap(fragment({ ...VIEW, userId: 'CD' }));
+    stale.content!.querySelector('.popup-save-area')!.click();
+    await flush();
+
+    expect(stale.remove).toHaveBeenCalled();
+    expect(proposeArea).not.toHaveBeenCalled();
+  });
+
+  test('saving from the list closes an open popup and its button cannot propose again', async () => {
+    const { map, list, swap, fragment, proposeArea, flush, clickPoint } = setup();
+    map.fire('load');
+    swap(fragment(VIEW));
+    const popup = clickPoint('place-1');
+
+    (list.querySelector('.place-save-area') as unknown as { click(): void }).click();
+    await flush();
+    popup.content!.querySelector('.popup-save-area')!.click();
+    await flush();
+
+    expect(popup.remove).toHaveBeenCalled();
+    expect(proposeArea).toHaveBeenCalledTimes(1);
+  });
+
   test('a place that is already an area gets no popup button', () => {
     const { map, swap, fragment, clickPoint } = setup();
     map.fire('load');

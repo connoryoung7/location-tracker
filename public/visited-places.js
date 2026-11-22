@@ -25,6 +25,8 @@ export function attachVisitedPlaces(map, { Popup, isDrawing, proposeArea, root =
   let isLoaded = false;
   /** Places of the current view saved as areas; a new view starts over. */
   let savedPlaceIds = new Set();
+  /** The place popup last opened. Its content describes one view, so it closes with it. */
+  let openPopup = null;
   const SAVED_MESSAGE = 'Saved as an area.';
   const list = root.getElementById('places');
 
@@ -32,16 +34,28 @@ export function attachVisitedPlaces(map, { Popup, isDrawing, proposeArea, root =
     return view?.rows.find((row) => row.placeId === placeId);
   }
 
+  function closePopup() {
+    openPopup?.remove();
+    openPopup = null;
+  }
+
   /**
    * Opens the place's area draft, from the list or a popup alike. Once it is
    * saved, the list row says so and later popups for it do too. The next Find
    * places names it after the area.
+   *
+   * `view` is the result the button came from. Place IDs restart with every
+   * result, so a button from an older one, or for a place already saved, does
+   * nothing rather than propose some other place.
    */
-  async function saveAsArea(placeId) {
-    const view = pendingView;
+  async function saveAsArea(placeId, view) {
+    if (view !== pendingView || savedPlaceIds.has(placeId)) return;
     const row = findRow(view, placeId);
     if (!row?.proposedArea) return;
 
+    // The draft's circle and centre marker would sit right under the popup. No
+    // other popup can open meanwhile: points ignore clicks while drawing.
+    closePopup();
     const isSaved = await proposeArea({ userId: view.userId, ...row.proposedArea });
     // A newer result replaced the rows, and its place IDs mean different places.
     if (!isSaved || view !== pendingView) return;
@@ -106,8 +120,8 @@ export function attachVisitedPlaces(map, { Popup, isDrawing, proposeArea, root =
       .join(' · ');
     container.append(title, detail);
 
-    const popup = new Popup();
-    const row = findRow(pendingView, placeId);
+    const view = pendingView;
+    const row = findRow(view, placeId);
     if (savedPlaceIds.has(placeId)) {
       const saved = root.createElement('p');
       saved.className = 'popup-detail';
@@ -118,15 +132,15 @@ export function attachVisitedPlaces(map, { Popup, isDrawing, proposeArea, root =
       save.type = 'button';
       save.className = 'popup-save-area outline';
       save.textContent = 'Save as area';
-      save.addEventListener('click', () => {
-        // The draft's circle and centre marker sit right under the popup.
-        popup.remove();
-        saveAsArea(placeId);
-      });
+      save.addEventListener('click', () => saveAsArea(placeId, view));
       container.append(save);
     }
 
-    popup.setLngLat(feature.geometry.coordinates).setDOMContent(container).addTo(map);
+    closePopup();
+    openPopup = new Popup()
+      .setLngLat(feature.geometry.coordinates)
+      .setDOMContent(container)
+      .addTo(map);
   });
 
   map.on('mouseenter', PLACES_LAYER_ID, () => {
@@ -139,7 +153,8 @@ export function attachVisitedPlaces(map, { Popup, isDrawing, proposeArea, root =
   list.addEventListener('click', (event) => {
     const save = event.target.closest('.place-save-area');
     if (save) {
-      saveAsArea(save.dataset.placeId);
+      // The list and pendingView are swapped together, so the row is from this view.
+      saveAsArea(save.dataset.placeId, pendingView);
       return;
     }
 
@@ -165,6 +180,7 @@ export function attachVisitedPlaces(map, { Popup, isDrawing, proposeArea, root =
     if (!dataElement) return;
     pendingView = JSON.parse(dataElement.textContent);
     savedPlaceIds = new Set();
+    closePopup();
     show(pendingView);
   });
 }
