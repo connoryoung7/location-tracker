@@ -279,6 +279,29 @@ test('the review shows the page-wide user, and a changed user is reviewed again,
   expect(JSON.parse(request.mock.calls[0]![1]!.body as string)).toMatchObject({ userId: 'CD' });
 });
 
+test('errors reach #form-error after the areas fragment swaps in a fresh one', async () => {
+  const { byId, document, set, submit, controller } = setup();
+  // What the areas fragment's out-of-band swap does on every load.
+  const replaceFormError = () => {
+    const fresh = document.createElement('p');
+    fresh.id = 'form-error';
+    byId('form-error').replaceWith(fresh as never);
+  };
+  replaceFormError();
+
+  byId('draw-start').click();
+  set('name', 'Home');
+  await submit();
+  expect(byId('form-error').textContent).toContain('Place and size a circle');
+
+  // And clearing it reaches the live element too.
+  replaceFormError();
+  byId('form-error').textContent = 'Still saving this area.';
+  controller.setGeometry([-71, 42], 250);
+  byId('draw-cancel').click();
+  expect(byId('form-error').textContent).toBe('');
+});
+
 test("discard can't interrupt a save, so the save can't later close another draft", async () => {
   const { byId, form, set, submit, request, controller, saved } = setup();
   let respond!: (response: Response) => void;

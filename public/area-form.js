@@ -19,7 +19,13 @@ export function createAreaForm(
   const fields = root.getElementById('draw-fields');
   const confirmation = root.getElementById('draw-confirmation');
   const submit = root.getElementById('draw-submit');
-  const error = root.getElementById('form-error');
+  /**
+   * Looked up on every use: the areas fragment swaps a fresh #form-error in out of
+   * band on every load, so a reference kept from start-up would be a detached copy.
+   */
+  const setError = (message) => {
+    root.getElementById('form-error').textContent = message;
+  };
   const placement = root.getElementById('draw-placement');
   const coordinates = root.getElementById('draw-coordinates');
   const userSelect = root.getElementById('user-select');
@@ -69,7 +75,7 @@ export function createAreaForm(
   function open() {
     form.hidden = false;
     root.getElementById('draw-start').hidden = true;
-    error.textContent = '';
+    setError('');
     edit();
   }
   function review(data) {
@@ -81,7 +87,7 @@ export function createAreaForm(
     fields.hidden = true;
     confirmation.hidden = false;
     submit.textContent = 'Confirm and create';
-    error.textContent = '';
+    setError('');
     updatePreview();
   }
   function close() {
@@ -90,7 +96,7 @@ export function createAreaForm(
     form.reset();
     form.hidden = true;
     root.getElementById('draw-start').hidden = false;
-    error.textContent = '';
+    setError('');
     preview(null, 0);
     cancelled();
   }
@@ -137,7 +143,7 @@ export function createAreaForm(
     if (!form.checkValidity() || !data.userId) {
       edit();
       if (placement.value === 'map' && (!data.lat || !data.lon || !data.radius)) {
-        error.textContent = 'Place and size a circle on the map, or choose Enter coordinates.';
+        setError('Place and size a circle on the map, or choose Enter coordinates.');
         return;
       }
       coordinates.open = true;
@@ -171,7 +177,7 @@ export function createAreaForm(
       saved();
     } catch (failure) {
       edit();
-      error.textContent = failure.message || 'Could not create area. Your draft has been kept.';
+      setError(failure.message || 'Could not create area. Your draft has been kept.');
     } finally {
       isSaving = false;
       for (const control of form.querySelectorAll('button')) control.disabled = false;
