@@ -110,7 +110,7 @@ function renderAreaListFragment(view: AreaListView): string {
           <td class="area-list-number">${formatCoordinate(row.lat)}, ${formatCoordinate(row.lon)}</td>
           <td class="area-list-number">${Math.round(row.radius)} m</td>
           <td class="area-list-actions">
-            <button type="button" class="area-list-show secondary outline" data-bounds="${escapeHtml(JSON.stringify(row.bounds))}">Show</button>
+            <button type="button" class="area-list-show secondary outline" data-owner-id="${escapeHtml(row.userId)}" data-bounds="${escapeHtml(JSON.stringify(row.bounds))}">Show</button>
             <button
               type="button"
               class="area-list-delete outline"

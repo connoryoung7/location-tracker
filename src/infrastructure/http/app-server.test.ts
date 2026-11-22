@@ -109,7 +109,8 @@ describe('GET /fragments/area-list', () => {
     expect(html).toContain('42.36010, -71.05890');
     expect(html).toContain('80 m');
     expect(html).toContain('hx-delete="/areas/AB/h"');
-    expect(html).toMatch(/class="area-list-show[^"]*" data-bounds="\[/);
+    // The owner lets Show reveal a user hidden in the legend before zooming.
+    expect(html).toMatch(/class="area-list-show[^"]*" data-owner-id="AB" data-bounds="\[/);
   });
 
   test('escapes area names and user IDs', async () => {

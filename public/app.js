@@ -207,6 +207,12 @@ document.getElementById('area-list').addEventListener('click', (event) => {
     return;
   }
 
+  // Zooming to an area whose owner is unchecked in the legend would show an
+  // empty map, so reveal that user first, as ticking their checkbox would.
+  hiddenUserIds.delete(button.dataset.ownerId);
+  applyUserFilter();
+  restoreLegendState();
+
   areaListDialog.close();
   map.fitBounds(JSON.parse(button.dataset.bounds), { padding: 60, maxZoom: 17 });
 });
