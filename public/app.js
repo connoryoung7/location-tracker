@@ -169,12 +169,9 @@ function readSwappedEvents() {
   renderEvents(pendingEventsView);
 }
 
-/** The server renders UTC so it never guesses a zone; show the viewer's local time instead. */
-function localizeEventTimes() {
-  for (const time of document.querySelectorAll('#events time[datetime]')) {
-    time.textContent = formatEventTime(time.dateTime);
-  }
-}
+// The server groups events into days; send the viewer's zone so they are the viewer's days.
+// Runs before htmx's `load` trigger: module scripts execute before DOMContentLoaded.
+document.getElementById('events-tz').value = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
 document.getElementById('events').addEventListener('click', (event) => {
   const button = event.target.closest('.event-locate');
@@ -341,7 +338,6 @@ function restoreLegendState() {
 document.body.addEventListener('htmx:afterSwap', (event) => {
   if (event.target.id === 'events') {
     readSwappedEvents();
-    localizeEventTimes();
     return;
   }
 

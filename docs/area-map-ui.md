@@ -176,8 +176,23 @@ block, and `public/app.js` pushes that block into a MapLibre source.
 The panel reloads when its User dropdown changes, after a successful recompute,
 and on the 30-second poll. The map frames a user's events once, when that user
 is first selected, so a poll never moves the view. Click a list row to fly to
-that event, or a point to see its area and time. Times are rendered in UTC by
-the server and converted to the viewer's local time in the browser.
+that event, or a point to see its area and time.
+
+### Grouped by day
+
+The list is broken into one section per day, newest day first, and shows only
+days that have events. Each section has a heading (`Today`, `Yesterday`, or a
+date such as `Thu, Nov 19`, with the year added outside the current one) and an
+event count. The heading stays pinned while that day's events scroll past.
+
+Days are the **viewer's** days. `public/app.js` puts the browser's IANA time zone
+into a hidden `tz` field that htmx sends with every request, and
+`buildAreaEventView()` groups and formats times in that zone, so an event at
+22:00 in New York is not filed under the next day just because it is past
+midnight in UTC. An unknown or missing zone falls back to UTC. `Yesterday` is
+worked out from calendar dates rather than "24 hours ago", so it stays correct
+on daylight-saving days. Labels are always in `en-US` so they don't depend on
+the server's locale.
 
 ## Recomputing event history
 
