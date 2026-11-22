@@ -39,8 +39,8 @@ function fnv1a(value: string): number {
  * on the next poll. Hashing is stateless, so a user's color survives other
  * users appearing and disappearing.
  *
- * Distinct IDs can still collide; the legend labels every swatch rather than
- * relying on color alone.
+ * Distinct IDs can still collide. The page shows one user at a time, so a
+ * collision never puts two indistinguishable users side by side.
  */
 export function colorForUserId(userId: string): string {
   const hue = fnv1a(userId) % 360;
@@ -72,16 +72,8 @@ export type AreaFeatureCollection = {
   features: AreaFeature[];
 };
 
-/** One row of the map legend: a user, their color, and how many areas they own. */
-export type AreaLegendRow = {
-  userId: string;
-  color: string;
-  areaCount: number;
-};
-
 export type AreaMapView = {
   featureCollection: AreaFeatureCollection;
-  legend: AreaLegendRow[];
   /** `[west, south, east, north]` enclosing every area, or undefined when there are none. */
   bounds?: [number, number, number, number];
 };
@@ -129,15 +121,18 @@ function circleToRing(lat: number, lon: number, radius: number): Position[] {
 
 /**
  * Turns a flat list of areas into everything the map UI needs to render them:
- * polygon geometry, a stable per-user color, legend rows, and a bounding box.
+ * polygon geometry, a stable per-user color, and a bounding box.
  *
  * Each user's color is derived from their ID alone, so it survives both
- * reordering and the arrival of new users between polls. The sort only fixes
- * legend row order.
+ * reordering and the arrival of new users between polls.
  */
 export function buildAreaMapView(areas: Area[]): AreaMapView {
-  const userIds = [...new Set(areas.map((area) => area.userId))].sort();
-  const colorByUserId = new Map(userIds.map((userId) => [userId, colorForUserId(userId)]));
+  const colorByUserId = new Map(
+    [...new Set(areas.map((area) => area.userId))].map((userId) => [
+      userId,
+      colorForUserId(userId),
+    ]),
+  );
 
   const features = areas.map((area): AreaFeature => {
     const ring = circleToRing(area.lat, area.lon, area.radius);
@@ -154,17 +149,8 @@ export function buildAreaMapView(areas: Area[]): AreaMapView {
     };
   });
 
-  const legend = userIds.map(
-    (userId): AreaLegendRow => ({
-      userId,
-      color: colorByUserId.get(userId)!,
-      areaCount: areas.filter((area) => area.userId === userId).length,
-    }),
-  );
-
   return {
     featureCollection: { type: 'FeatureCollection', features },
-    legend,
     bounds: boundsOf(features),
   };
 }

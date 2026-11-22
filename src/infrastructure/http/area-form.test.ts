@@ -6,7 +6,8 @@ import {
   type HTMLSelectElement,
   type HTMLElement,
 } from 'happy-dom';
-import { createAreaForm, updateUserSelects } from '@/../public/area-form.js';
+import { createAreaForm } from '@/../public/area-form.js';
+import { syncUserActions, updateUserSelect } from '@/../public/user-scope.js';
 import { createAppServer } from '@/infrastructure/http/app-server.ts';
 import {
   mockAreaEventRepository,
@@ -56,11 +57,17 @@ function setup(users: string[] = ['AB']) {
     cancelled: () => {},
     request,
   });
-  updateUserSelects(document, users);
+  updateUserSelect(document, users);
+  // As app.js does: Add area and the submit button wait for a selected user.
+  syncUserActions(document, (document.getElementById('user-select') as HTMLSelectElement).value);
   const byId = (id: string) => document.getElementById(id) as HTMLElement;
   const form = byId('draw-form') as unknown as HTMLFormElement;
   const set = (key: string, value: string) => {
     (form.elements.namedItem(key) as HTMLInputElement).value = value;
+  };
+  /** Picks the page-wide user in the header, as the viewer would. */
+  const pickUser = (userId: string) => {
+    (byId('user-select') as unknown as HTMLSelectElement).value = userId;
   };
   const submit = async () => {
     form.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
@@ -78,24 +85,15 @@ function setup(users: string[] = ['AB']) {
     controller,
     form,
     set,
+    pickUser,
     submit,
   };
 }
 
-test('empty, sole, and multiple users update every user select, preserve valid selection and escape IDs', () => {
-  const { document } = setup([]);
-  const selects = [...document.querySelectorAll('[data-user-select]')];
-  // Recompute, events filter, places form, and draw form.
-  expect(selects).toHaveLength(4);
-  for (const select of selects)
-    expect((select as unknown as HTMLSelectElement).disabled).toBe(true);
-  updateUserSelects(document, ['AB']);
-  for (const select of selects) expect((select as unknown as HTMLSelectElement).value).toBe('AB');
-  updateUserSelects(document, ['AB', '<img src=x>']);
-  for (const select of selects) expect((select as unknown as HTMLSelectElement).value).toBe('AB');
-  expect(document.querySelector('img')).toBeNull();
-  updateUserSelects(document, ['CD', 'EF']);
-  for (const select of selects) expect((select as unknown as HTMLSelectElement).value).toBe('');
+test('the draft form has no user select of its own', () => {
+  const { form } = setup();
+
+  expect(form.elements.namedItem('userId')).toBeNull();
 });
 
 test('draft geometry, review, polling, back, and cancellation never persist an area', async () => {
@@ -109,7 +107,7 @@ test('draft geometry, review, polling, back, and cancellation never persist an a
   await submit();
   expect(byId('draw-confirmation')!.hidden).toBe(false);
   expect(byId('draw-summary')!.textContent).toContain('Latitude: 43');
-  updateUserSelects(document, ['AB', 'CD']);
+  updateUserSelect(document, ['AB', 'CD']);
   expect(byId('draw-confirmation')!.hidden).toBe(false);
   byId('draw-back')!.click();
   expect((form.elements.namedItem('lat') as HTMLInputElement).value).toBe('43');
@@ -119,10 +117,10 @@ test('draft geometry, review, polling, back, and cancellation never persist an a
   expect(request).not.toHaveBeenCalled();
 });
 
-test('invalid geometry is rejected and only final confirmation persists the selected user once', async () => {
-  const { byId, document, set, submit, request, form, controller } = setup(['AB', 'CD']);
+test('invalid geometry is rejected and only final confirmation persists the page-wide user once', async () => {
+  const { byId, document, set, pickUser, submit, request, form, controller } = setup(['AB', 'CD']);
+  pickUser('CD');
   byId('draw-start')!.click();
-  set('userId', 'CD');
   set('name', 'Work');
   controller.setGeometry([0, 0], 100);
   set('lat', '91');
@@ -259,4 +257,107 @@ test('a new proposal replaces the previous one', async () => {
   expect(await first).toBe(false);
   expect((form.elements.namedItem('name') as HTMLInputElement).value).toBe('Gym');
   expect((form.elements.namedItem('lat') as HTMLInputElement).value).toBe('40');
+});
+
+test('the review shows the page-wide user, and a changed user is reviewed again, not saved', async () => {
+  const { byId, set, pickUser, submit, request, controller } = setup(['AB', 'CD']);
+  pickUser('AB');
+  byId('draw-start').click();
+  set('name', 'Home');
+  controller.setGeometry([-71, 42], 250);
+
+  await submit();
+  expect(byId('draw-summary').textContent).toContain('User: AB');
+
+  // Nothing the viewer reviewed was for CD, so confirming must not save it.
+  pickUser('CD');
+  await submit();
+  expect(request).not.toHaveBeenCalled();
+  expect(byId('draw-summary').textContent).toContain('User: CD');
+
+  await submit();
+  expect(JSON.parse(request.mock.calls[0]![1]!.body as string)).toMatchObject({ userId: 'CD' });
+});
+
+test('errors reach #form-error after the areas fragment swaps in a fresh one', async () => {
+  const { byId, document, set, submit, controller } = setup();
+  // What the areas fragment's out-of-band swap does on every load.
+  const replaceFormError = () => {
+    const fresh = document.createElement('p');
+    fresh.id = 'form-error';
+    byId('form-error').replaceWith(fresh as never);
+  };
+  replaceFormError();
+
+  byId('draw-start').click();
+  set('name', 'Home');
+  await submit();
+  expect(byId('form-error').textContent).toContain('Place and size a circle');
+
+  // And clearing it reaches the live element too.
+  replaceFormError();
+  byId('form-error').textContent = 'Still saving this area.';
+  controller.setGeometry([-71, 42], 250);
+  byId('draw-cancel').click();
+  expect(byId('form-error').textContent).toBe('');
+});
+
+test("discard can't interrupt a save, so the save can't later close another draft", async () => {
+  const { byId, form, set, submit, request, controller, saved } = setup();
+  let respond!: (response: Response) => void;
+  request.mockImplementationOnce(() => new Promise<Response>((resolve) => (respond = resolve)));
+  byId('draw-start').click();
+  set('name', 'Home');
+  controller.setGeometry([-71, 42], 250);
+  await submit();
+  await submit();
+
+  // The POST is on its way.
+  expect(controller.isSaving()).toBe(true);
+  controller.discard();
+  expect(form.hidden).toBe(false);
+
+  respond(new Response('{}', { status: 201 }));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  expect(controller.isSaving()).toBe(false);
+  expect(form.hidden).toBe(true);
+  expect(saved).toHaveBeenCalledTimes(1);
+});
+
+test('isOpen and discard let a user switch throw the draft away', () => {
+  const { byId, form, set, controller, preview, request } = setup();
+  expect(controller.isOpen()).toBe(false);
+
+  byId('draw-start').click();
+  set('name', 'Home');
+  controller.setGeometry([-71, 42], 250);
+  expect(controller.isOpen()).toBe(true);
+
+  controller.discard();
+
+  expect(controller.isOpen()).toBe(false);
+  expect(form.hidden).toBe(true);
+  expect((form.elements.namedItem('name') as HTMLInputElement).value).toBe('');
+  expect(preview).toHaveBeenLastCalledWith(null, 0);
+  expect(request).not.toHaveBeenCalled();
+});
+
+test('a place found for anyone but the page-wide user is not proposed', async () => {
+  const { form, pickUser, controller } = setup(['AB', 'CD']);
+  pickUser('CD');
+
+  expect(await controller.propose(PROPOSAL)).toBe(false);
+  expect(form.hidden).toBe(true);
+});
+
+test('a user switch discarding a proposed draft reports it as abandoned', async () => {
+  const { form, controller, request } = setup();
+
+  const proposal = controller.propose(PROPOSAL);
+  controller.discard();
+
+  expect(await proposal).toBe(false);
+  expect(form.hidden).toBe(true);
+  expect(request).not.toHaveBeenCalled();
 });

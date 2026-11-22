@@ -17,11 +17,10 @@ function haversineMeters([lonA, latA]: [number, number], [lonB, latB]: [number, 
 }
 
 describe('buildAreaMapView', () => {
-  test('empty input yields no features, no legend, and no bounds', () => {
+  test('empty input yields no features and no bounds', () => {
     const view = buildAreaMapView([]);
 
     expect(view.featureCollection).toEqual({ type: 'FeatureCollection', features: [] });
-    expect(view.legend).toEqual([]);
     expect(view.bounds).toBeUndefined();
   });
 
@@ -54,10 +53,11 @@ describe('buildAreaMapView', () => {
   });
 
   const colorFor = (view: AreaMapView, userId: string) =>
-    view.legend.find((row) => row.userId === userId)!.color;
+    view.featureCollection.features.find((feature) => feature.properties.userId === userId)!
+      .properties.color;
 
   // Colors are hashed per user ID, so distinctness is likely but not guaranteed
-  // -- two IDs can collide. The legend labels every swatch for that reason.
+  // -- two IDs can collide.
   test('colors do not depend on the order areas arrive in', () => {
     const areas = [buildArea({ id: 'a1', userId: 'AB' }), buildArea({ id: 'b1', userId: 'CD' })];
 
@@ -100,23 +100,15 @@ describe('buildAreaMapView', () => {
     );
   });
 
-  test('legend counts areas per user and features carry their display metadata', () => {
+  test('features carry their display metadata, sharing one color per user', () => {
     const view = buildAreaMapView([
       buildArea({ id: 'a1', userId: 'AB', name: 'Home' }),
       buildArea({ id: 'a2', userId: 'AB', name: 'Gym' }),
-      buildArea({ id: 'b1', userId: 'CD', name: 'Work' }),
     ]);
+    const [home, gym] = view.featureCollection.features;
 
-    expect(view.legend).toEqual([
-      { userId: 'AB', color: expect.any(String), areaCount: 2 },
-      { userId: 'CD', color: expect.any(String), areaCount: 1 },
-    ]);
-
-    expect(view.featureCollection.features[0]!.properties).toMatchObject({
-      areaId: 'a1',
-      userId: 'AB',
-      name: 'Home',
-    });
+    expect(home!.properties).toMatchObject({ areaId: 'a1', userId: 'AB', name: 'Home' });
+    expect(gym!.properties.color).toBe(home!.properties.color);
   });
 
   test('bounds enclose each full circle, not just the center points', () => {

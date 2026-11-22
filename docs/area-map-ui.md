@@ -26,23 +26,60 @@ config schema up front. The map UI never uses the key itself.
 
 ## Routes
 
-| Route                            | Purpose                                                 |
-| -------------------------------- | ------------------------------------------------------- |
-| `GET /`                          | The page shell: legend sidebar, draw panel, map         |
-| `GET /fragments/areas`           | HTMX fragment — legend markup plus the areas as GeoJSON |
-| `GET /fragments/area-list`       | HTMX fragment — every area as a table for the modal     |
-| `GET /fragments/events?userId=`  | HTMX fragment — a user's latest area events plus points |
-| `GET /fragments/places?userId=`  | HTMX fragment — places a user stopped at; see below     |
-| `POST /areas`                    | Create an area; the server assigns its `id`             |
-| `DELETE /areas/:userId/:areaId`  | Delete an area                                          |
-| `GET /users`                     | Known tracker IDs and area owners for the dropdowns     |
-| `GET /_health`                   | `200` when both stores answer, `503` otherwise          |
-| `GET /_metrics`                  | Prometheus metrics, same format as the ingestion API    |
-| `/vendor/*`                      | MapLibre and HTMX, served from `node_modules`           |
-| `/static/*`                      | `public/app.js` and `public/app.css`                    |
+| Route                               | Purpose                                                    |
+| ----------------------------------- | ---------------------------------------------------------- |
+| `GET /?user=`                       | The page shell for one user: sidebar, draw panel, map      |
+| `GET /fragments/areas?userId=`      | HTMX fragment — a user's areas plus their circles          |
+| `GET /fragments/area-list?userId=`  | HTMX fragment — a user's areas as a table for the modal    |
+| `GET /fragments/events?userId=`     | HTMX fragment — a user's latest area events plus points    |
+| `GET /fragments/places?userId=`     | HTMX fragment — places a user stopped at; see below        |
+| `POST /areas`                       | Create an area; the server assigns its `id`                |
+| `DELETE /areas/:userId/:areaId`     | Delete an area                                             |
+| `GET /users`                        | Known tracker IDs and area owners for the user selector    |
+| `POST /users/recompute`             | Rebuild a user's event history; see below                  |
+| `GET /_health`                      | `200` when both stores answer, `503` otherwise             |
+| `GET /_metrics`                     | Prometheus metrics, same format as the ingestion API       |
+| `/vendor/*`                         | MapLibre and HTMX, served from `node_modules`              |
+| `/static/*`                         | `public/app.js`, its modules, and `public/app.css`         |
 
-Both write routes respond with the re-rendered areas fragment, so the sidebar and
-the map update from a single round trip and cannot disagree.
+Both write routes respond with that user's re-rendered areas fragment, so the
+sidebar and the map update from a single round trip and cannot disagree.
+
+## Selecting a user
+
+The page shows **one user at a time**. A single User selector in the sidebar
+header (`#user-scope`) decides whose areas, events, and places you see and who
+Add area, Recompute events, and Find places act on. No panel has a user
+dropdown of its own, and the map never mixes users. There is no "all users"
+view.
+
+- **Opening the page.** `/?user=AB` opens on AB: the server renders AB as the
+  selected option, so the first fragment loads already carry it. Without
+  `?user=`, the page restores the last user picked in this browser
+  (`localStorage`); without that, it waits for `GET /users`, selects the sole
+  user if there is only one, and otherwise asks you to pick.
+- **Remembering it.** Every change updates `?user=` with `history.replaceState`
+  (so it doesn't fill the back button) and the remembered user, so reloads and
+  bookmarks keep the user. A `?user=` that isn't a tracked user shows a notice
+  under the selector and falls back the same way; a stale remembered user is
+  replaced silently.
+- **Switching.** Every panel includes `#user-scope` and reloads on
+  `change from:#user-scope`, with `hx-sync="this:replace"` so a request still in
+  flight for the previous user is cancelled. The map drops the previous user's
+  circles, events, places, and any open popup straight away, and frames the new
+  user once, from whichever of their areas or events arrives first. Places
+  results are cleared but not re-run: that panel only ever runs on request.
+  Responses carry the user they are for, and one that arrives for anyone but the
+  selected user is ignored and reloaded.
+- **An open area draft.** Switching while drafting an area asks first, and
+  declining keeps the current user. A draft is always saved for the user shown in
+  its review step. If the poll drops the selected user altogether, the draft is
+  discarded without asking, since there is no one left to save it for.
+- **No user selected.** Every panel prompts you to select a user, the map is
+  empty, and the user actions are disabled.
+
+The selector lives in `public/user-scope.js`, which is tested with happy-dom
+against the real page markup.
 
 ## Where areas live
 
@@ -93,8 +130,8 @@ into Lua.
 ## How it fits together
 
 HTMX is the data transport, not just a markup swapper. `GET /fragments/areas`
-returns the legend `<ul>` **and** a `<script type="application/json">` block holding
-the full view model. `public/app.js` listens for `htmx:afterSwap` and pushes that
+returns the selected user's list of areas **and** a `<script type="application/json">`
+block holding their circles as GeoJSON. `public/app.js` listens for `htmx:afterSwap` and pushes that
 JSON into the MapLibre GeoJSON source. One response drives both the sidebar and the
 map, so they can never disagree, and there is no second JSON API to keep in sync.
 
@@ -111,8 +148,8 @@ away from the equator. Keeping that math server-side also puts it under `bun tes
 ### Colors
 
 Each user's color is derived from a hash of their user ID, so it depends only on
-their own ID and survives other users being added or removed. Unchecking a legend row
-applies a MapLibre `filter` on the `userId` property.
+their own ID and survives other users being added or removed. Their circles, and
+the swatches beside their areas in the sidebar, all use it.
 
 ## Drawing an area
 
@@ -121,15 +158,14 @@ radius, then click again. Drag the blue centre marker to reposition the draft ci
 update as you drag. The circle stays visible while you edit latitude,
 longitude, and radius in metres. Numeric edits update the preview immediately. Choose Enter
 coordinates for manual placement; On the map is selected each time a new draft starts. Naming the
-area or selecting its user does not interrupt map placement.
+area does not interrupt map placement.
 
-Both Add area and Recompute events use a User dropdown populated from distinct
-stored location tracker IDs and existing area owners. Users without areas can
-create their first one. A sole user is automatically selected; multiple users
-require an explicit choice, and an empty list disables submission. User polling
-preserves valid selections and does not replace the draft form.
+The area is drafted for the page-wide user (see [Selecting a user](#selecting-a-user)),
+so a user without any areas can create their first one. Add area is disabled
+until a user is selected. User polling preserves the selection and does not
+replace the draft form.
 
-Choose Review area to check the name, selected user, coordinates, and radius.
+Choose Review area to check the name, user, coordinates, and radius.
 The centre marker is locked during review and saving. Back to editing unlocks it and keeps the
 draft; Cancel discards it. Only Confirm and create sends
 a creation request. Confirmation is disabled during that request to prevent
@@ -148,9 +184,10 @@ There is **no authentication**, by design: the app is meant to run inside a Tail
 network. Binding it to a public interface would expose every user's home and work
 locations — and now also let anyone who reaches it create and delete areas.
 
-Area names and user IDs are untrusted input, so they are HTML-escaped in the legend,
-`<`-escaped inside the JSON block, and rendered into map popups via `textContent`
-rather than `innerHTML`. The server assigns every area's `id`, so a client cannot
+Area names and user IDs are untrusted input, so they are HTML-escaped in the
+sidebar and the `?user=` preselection, `<`-escaped inside the JSON block, and
+rendered into the user selector and map popups via `textContent` rather than
+`innerHTML`. The server assigns every area's `id`, so a client cannot
 overwrite an existing area by posting a known one.
 
 ## Offline behavior
@@ -161,11 +198,12 @@ the **browser** the area circles still render, but over a blank background.
 
 ## Listing areas
 
-**List areas**, in the Areas panel header, opens a modal table of every area:
-name, user (with their map color), centre, and radius, grouped by user and then
-sorted by name. The table is fetched each time the modal opens. **Show** closes
-the modal and zooms the map to that area's circle. **Delete** asks for
-confirmation, then refreshes the legend, the map, and the table together.
+The Areas panel lists the selected user's areas by name; click one to zoom the
+map to it. **List areas**, in the panel header, opens a modal table of the same
+areas with their centre and radius, sorted by name. The table is fetched each
+time the modal opens. **Show** closes the modal and zooms the map to that area's
+circle. **Delete** asks for confirmation, then refreshes the Areas panel, the
+map, and the table together.
 
 ## Viewing events
 
@@ -175,9 +213,9 @@ The Recent events panel lists the selected user's 100 most recent `area.entered`
 `/fragments/events` response carries the list markup and an `events-data` JSON
 block, and `public/app.js` pushes that block into a MapLibre source.
 
-The panel reloads when its User dropdown changes, after a successful recompute,
-and on the 30-second poll. The map frames a user's events once, when that user
-is first selected, so a poll never moves the view. Click a list row to fly to
+The panel reloads when the page-wide user changes, after a successful recompute,
+and on the 30-second poll. Polls never move the view; see
+[Selecting a user](#selecting-a-user) for how a newly selected user is framed. Click a list row to fly to
 that event, or a point to see its area and time.
 
 ### Grouped by day
@@ -188,7 +226,7 @@ date such as `Thu, Nov 19`, with the year added outside the current one) and an
 event count. The heading stays pinned while that day's events scroll past.
 
 Days are the **viewer's** days. `public/app.js` puts the browser's IANA time zone
-into a hidden `tz` field that htmx sends with every request, and
+into a hidden `tz` field in `#user-scope`, which htmx sends with every request, and
 `buildAreaEventView()` groups and formats times in that zone, so an event at
 22:00 in New York is not filed under the next day just because it is past
 midnight in UTC. An unknown or missing zone falls back to UTC. `Yesterday` is
@@ -198,15 +236,15 @@ the server's locale.
 
 ## Visited places
 
-The Places visited panel finds where a user stopped for 5 minutes or more and
-names each spot from their areas or from nearby OpenStreetMap places. Any place
-that is not yet an area offers **Save as area** in its list row and its map
-popup, which opens a pre-filled draft in the New area form for review. See
-[visited-places.md](visited-places.md).
+The Places visited panel finds where the selected user stopped for 5 minutes or
+more and names each spot from their areas or from nearby OpenStreetMap places.
+Changing the user clears its results. Any place that is not yet an area offers
+**Save as area** in its list row and its map popup, which opens a pre-filled
+draft in the New area form for review. See [visited-places.md](visited-places.md).
 
 ## Recomputing event history
 
-Enter a tracker ID in the Recompute events form and confirm. Replay uses all stored
+Choose Recompute events and confirm; it rebuilds the selected user's history. Replay uses all stored
 locations in timestamp order (database ID breaks ties) and the user's current
 areas. It replaces only that user's events in one database transaction. Historical
 notifications and Redis pub/sub messages are not resent. Date ranges are not yet

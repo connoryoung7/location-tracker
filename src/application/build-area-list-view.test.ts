@@ -18,15 +18,18 @@ describe('buildAreaListView', () => {
     ]);
   });
 
-  test('uses the same user color as the map legend', () => {
+  test('uses the same user color as the circles on the map', () => {
     const areas = [buildArea({ userId: 'AB' }), buildArea({ id: 'other', userId: 'CD' })];
 
-    const legendColors = Object.fromEntries(
-      buildAreaMapView(areas).legend.map((row) => [row.userId, row.color]),
+    const mapColors = Object.fromEntries(
+      buildAreaMapView(areas).featureCollection.features.map((feature) => [
+        feature.properties.userId,
+        feature.properties.color,
+      ]),
     );
 
     for (const row of buildAreaListView(areas).rows) {
-      expect(row.color).toBe(legendColors[row.userId]!);
+      expect(row.color).toBe(mapColors[row.userId]!);
     }
   });
 

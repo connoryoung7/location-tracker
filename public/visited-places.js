@@ -192,4 +192,21 @@ export function attachVisitedPlaces(map, { Popup, isDrawing, proposeArea, root =
     closePopup();
     show(pendingView);
   });
+
+  return {
+    /**
+     * Drops the results and their map points, for when the selected user
+     * changes. Places are only ever found on request, so nothing reloads.
+     * Like a new result, it starts a new view: the old points ignore clicks
+     * while MapLibre removes them, and nothing counts as saved any more.
+     */
+    clear() {
+      pendingView = null;
+      viewGeneration += 1;
+      savedPlaceIds = new Set();
+      closePopup();
+      list.replaceChildren();
+      show(null);
+    },
+  };
 }
