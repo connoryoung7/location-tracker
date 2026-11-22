@@ -85,8 +85,8 @@ function setup(users: string[] = ['AB']) {
 test('empty, sole, and multiple users update every user select, preserve valid selection and escape IDs', () => {
   const { document } = setup([]);
   const selects = [...document.querySelectorAll('[data-user-select]')];
-  // Recompute, events filter, and draw form.
-  expect(selects).toHaveLength(3);
+  // Recompute, events filter, places form, and draw form.
+  expect(selects).toHaveLength(4);
   for (const select of selects)
     expect((select as unknown as HTMLSelectElement).disabled).toBe(true);
   updateUserSelects(document, ['AB']);

@@ -166,10 +166,13 @@ export class SqliteLocationRepository
     range: { from?: number; to?: number } = {},
   ): AsyncIterable<LocationPayload> {
     const rows = this.db.query(
-      `SELECT lat, lon, tst, tid FROM locations WHERE tid = ? AND tst >= ? AND tst <= ? ORDER BY tst, id`,
+      `SELECT lat, lon, tst, tid, acc FROM locations WHERE tid = ? AND tst >= ? AND tst <= ? ORDER BY tst, id`,
     );
     for (const row of rows.iterate(userId, range.from ?? 0, range.to ?? Number.MAX_SAFE_INTEGER)) {
-      yield { _type: 'location', ...(row as Omit<LocationPayload, '_type'>) };
+      const { acc, ...location } = row as Omit<LocationPayload, '_type' | 'acc'> & {
+        acc: number | null;
+      };
+      yield { _type: 'location', ...location, ...(acc === null ? {} : { acc }) };
     }
   }
 

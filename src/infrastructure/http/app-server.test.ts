@@ -1,4 +1,4 @@
-import { test, expect, describe, beforeAll, afterAll, beforeEach } from 'bun:test';
+import { test, expect, describe, beforeAll, afterAll, beforeEach, mock } from 'bun:test';
 import { createAppServer, type AppDeps } from '@/infrastructure/http/app-server.ts';
 import { ConsoleLogger } from '@/infrastructure/logging/console.logger.ts';
 import { PrometheusMetricsCollector } from '@/infrastructure/metrics/prometheus.metrics.ts';
@@ -6,6 +6,7 @@ import { mockAreaEventRepository, mockAreaRepository } from '@/test/mocks.ts';
 import { buildArea } from '@/test/factories.ts';
 import type { Server } from 'node:http';
 import type { GeofenceEvent } from '@/domain/events.ts';
+import type { VisitedPlace } from '@/application/infer-visited-places.ts';
 
 const TEST_PORT = 0; // let OS pick an available port
 
@@ -13,6 +14,9 @@ let server: Server;
 let baseUrl: string;
 let areaRepo: ReturnType<typeof mockAreaRepository>;
 let areaEvents: ReturnType<typeof mockAreaEventRepository>;
+const visitedPlaces = mock(
+  async (_userId: string, _range: { from?: number }): Promise<VisitedPlace[]> => [],
+);
 
 beforeAll(async () => {
   areaRepo = mockAreaRepository();
@@ -23,6 +27,7 @@ beforeAll(async () => {
     areaEvents,
     users: { listUserIds: async () => ['AB', 'CD'] },
     recompute: async () => ({ locations: 10, before: 2, after: 4 }),
+    visitedPlaces,
     logger: new ConsoleLogger(),
     metrics: new PrometheusMetricsCollector(),
   };
@@ -55,6 +60,8 @@ beforeEach(() => {
   areaRepo.removeArea.mockClear();
   areaEvents.listAreaEvents.mockReset();
   areaEvents.listAreaEvents.mockImplementation(() => Promise.resolve([]));
+  visitedPlaces.mockReset();
+  visitedPlaces.mockImplementation(async () => []);
 });
 
 describe('GET /', () => {
@@ -253,6 +260,137 @@ describe('GET /fragments/events', () => {
     expect(res.status).toBe(503);
     expect(html).toContain('Could not load events');
     expect(html).not.toContain('events-data');
+  });
+});
+
+describe('GET /fragments/places', () => {
+  const grocery: VisitedPlace = {
+    lat: 42.37,
+    lon: -71.04,
+    visits: [
+      {
+        lat: 42.37,
+        lon: -71.04,
+        arrivedAt: 1_700_000_000,
+        departedAt: 1_700_001_800,
+        locationCount: 30,
+      },
+      {
+        lat: 42.37,
+        lon: -71.04,
+        arrivedAt: 1_700_100_000,
+        departedAt: 1_700_101_200,
+        locationCount: 20,
+      },
+    ],
+    totalSeconds: 3_000,
+    candidates: [
+      {
+        id: 'node/1',
+        name: 'Fresh Market',
+        category: 'Grocery store',
+        lat: 42.37,
+        lon: -71.04,
+        distanceMeters: 6,
+      },
+      {
+        id: 'node/2',
+        name: 'Corner Café',
+        category: 'Café',
+        lat: 42.37,
+        lon: -71.04,
+        distanceMeters: 48.6,
+      },
+    ],
+    lookup: 'found',
+  };
+
+  const readPlacesData = (html: string) =>
+    JSON.parse(
+      html.match(/<script type="application\/json" id="places-data">(.*?)<\/script>/s)![1]!,
+    );
+
+  test('the page has a places form that loads the fragment on request', async () => {
+    const html = await fetch(`${baseUrl}/`).then((res) => res.text());
+
+    expect(html).toContain('id="places-form"');
+    expect(html).toContain('hx-get="/fragments/places"');
+    expect(html).toContain('<option value="30" selected>Last 30 days</option>');
+  });
+
+  test('lists places with what they probably are and embeds them for the map', async () => {
+    visitedPlaces.mockImplementation(async () => [grocery]);
+
+    const res = await fetch(`${baseUrl}/fragments/places?userId=AB&days=all`);
+    const html = await res.text();
+
+    expect(res.status).toBe(200);
+    expect(visitedPlaces).toHaveBeenCalledWith('AB', {});
+    expect(html).toContain('Fresh Market');
+    expect(html).toContain('2 visits');
+    expect(html).toContain('Grocery store · 50 min');
+    expect(html).toContain('Corner Café <span>Café · 49 m</span>');
+    expect(html).toContain('Grocery store <strong>2</strong>');
+    expect(html).toContain('<time datetime="2023-11-16T02:20:00.000Z">');
+    expect(html).toContain('openstreetmap.org/copyright');
+    const view = readPlacesData(html);
+    expect(view.userId).toBe('AB');
+    expect(view.featureCollection.features).toHaveLength(1);
+  });
+
+  test('reads only the chosen period, defaulting to 30 days', async () => {
+    const now = Math.floor(Date.now() / 1000);
+
+    await fetch(`${baseUrl}/fragments/places?userId=AB&days=7`);
+    await fetch(`${baseUrl}/fragments/places?userId=AB`);
+
+    const [week, month] = visitedPlaces.mock.calls.map(([, range]) => range as { from: number });
+    expect(week!.from).toBeGreaterThanOrEqual(now - 7 * 86_400);
+    expect(week!.from).toBeLessThanOrEqual(now - 7 * 86_400 + 5);
+    expect(month!.from).toBeGreaterThanOrEqual(now - 30 * 86_400);
+    expect(month!.from).toBeLessThanOrEqual(now - 30 * 86_400 + 5);
+  });
+
+  test('rejects a missing user or an unknown period', async () => {
+    const noUser = await fetch(`${baseUrl}/fragments/places?userId=`);
+    const badPeriod = await fetch(`${baseUrl}/fragments/places?userId=AB&days=toString`);
+
+    expect(noUser.status).toBe(422);
+    expect(await noUser.text()).toContain('Select a user');
+    expect(badPeriod.status).toBe(422);
+    expect(visitedPlaces).not.toHaveBeenCalled();
+  });
+
+  test('escapes place names in the list and the embedded JSON', async () => {
+    const hostile = '</script><img src=x onerror=alert(1)>';
+    visitedPlaces.mockImplementation(async () => [
+      { ...grocery, candidates: [{ ...grocery.candidates[0]!, name: hostile, category: hostile }] },
+    ]);
+
+    const html = await fetch(`${baseUrl}/fragments/places?userId=AB`).then((res) => res.text());
+
+    expect(html).not.toContain('<img');
+    expect(readPlacesData(html).rows[0].label).toBe(hostile);
+  });
+
+  test('says so when the user made no stops', async () => {
+    const html = await fetch(`${baseUrl}/fragments/places?userId=AB`).then((res) => res.text());
+
+    expect(html).toContain('No stops of 5 minutes or more');
+    expect(readPlacesData(html).rows).toEqual([]);
+  });
+
+  test('shows a retry message without map data when inference fails', async () => {
+    visitedPlaces.mockImplementation(async () => {
+      throw new Error('db down');
+    });
+
+    const res = await fetch(`${baseUrl}/fragments/places?userId=AB`);
+    const html = await res.text();
+
+    expect(res.status).toBe(503);
+    expect(html).toContain('Could not find places');
+    expect(html).not.toContain('places-data');
   });
 });
 

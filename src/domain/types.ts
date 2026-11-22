@@ -303,3 +303,30 @@ export type GeofenceReplayState = {
   inside: string[];
   pending: [string, number][];
 };
+
+/**
+ * A stretch of time a user stayed in one spot, detected from their location
+ * history. Inferred, not reported by the device.
+ */
+export type Visit = {
+  /** Mean of the fixes that make up the visit (degrees). */
+  lat: number;
+  lon: number;
+  /** Timestamp of the first fix at the spot (Unix epoch seconds). */
+  arrivedAt: number;
+  /** Estimated time the user left (Unix epoch seconds). */
+  departedAt: number;
+  /** How many location fixes the visit was built from. */
+  locationCount: number;
+};
+
+/** A named feature on the map, such as a shop or a park, that a user might have visited. */
+export type PointOfInterest = {
+  /** Identifier from the data source, e.g. `node/123` for OpenStreetMap. */
+  id: string;
+  name: string;
+  /** Human-readable kind of place, e.g. `Grocery store`. */
+  category: string;
+  lat: number;
+  lon: number;
+};

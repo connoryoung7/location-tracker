@@ -1,5 +1,6 @@
 import { createDraftMarker } from '/static/draft-marker.js';
 import { createAreaForm, updateUserSelects } from '/static/area-form.js';
+import { attachVisitedPlaces, PLACES_LAYER_ID } from '/static/visited-places.js';
 // maplibre-gl v6 ships named ESM exports only — there is no default export.
 import {
   MapLibreMap,
@@ -107,6 +108,10 @@ map.on('load', () => {
   }
   renderEvents(pendingEventsView);
 });
+
+// Registered after the load handler above, so place points draw over the areas.
+// `drawState` is declared further down; this only reads it once a click arrives.
+attachVisitedPlaces(map, { Popup, isDrawing: () => drawState !== 'idle' });
 
 function formatEventTime(isoTime) {
   return new Date(isoTime).toLocaleString();
@@ -236,8 +241,10 @@ map.on('click', 'areas-fill', (event) => {
   if (drawState !== 'idle') {
     return;
   }
-  // An event point inside the area opens its own popup instead.
-  if (map.queryRenderedFeatures(event.point, { layers: ['events-points'] }).length > 0) {
+  // An event or place point inside the area opens its own popup instead.
+  if (
+    map.queryRenderedFeatures(event.point, { layers: ['events-points', PLACES_LAYER_ID] }).length > 0
+  ) {
     return;
   }
 

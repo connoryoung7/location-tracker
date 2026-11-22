@@ -1,10 +1,13 @@
 import { PostgresLocationRepository } from '@/repository/location-repository/postgres.repository.ts';
 import { SqliteLocationRepository } from '@/repository/location-repository/sqlite.repository.ts';
+import { inferVisitedPlaces } from '@/application/infer-visited-places.ts';
 import { recomputeAreaEvents } from '@/application/recompute-area-events.ts';
 import { loadConfig } from '@/config.ts';
 import { createAppServer } from '@/infrastructure/http/app-server.ts';
 import { PinoLogger } from '@/infrastructure/logging/pino.logger.ts';
 import { PrometheusMetricsCollector } from '@/infrastructure/metrics/prometheus.metrics.ts';
+import { CachingPlaceFinder } from '@/infrastructure/places/caching.place-finder.ts';
+import { OverpassPlaceFinder } from '@/infrastructure/places/overpass.place-finder.ts';
 import { createRedisClient, waitForRedis } from '@/infrastructure/redis/client.ts';
 import {
   createAreaRepository,
@@ -23,6 +26,12 @@ const repo =
     ? new PostgresLocationRepository(store.sql)
     : new SqliteLocationRepository(store.db);
 if (repo instanceof PostgresLocationRepository) await repo.migrate();
+
+// Shared across requests so the cache outlives a single run.
+const placeFinder = config.overpassUrl
+  ? new CachingPlaceFinder(new OverpassPlaceFinder(config.overpassUrl))
+  : undefined;
+if (!placeFinder) logger.info('OVERPASS_URL is empty; visited places will not be looked up');
 
 // Commands fail fast rather than queueing while disconnected, so warm the
 // connection before doing any startup work -- and before serving a page, which
@@ -55,6 +64,8 @@ const app = createAppServer({
       metrics,
       thresholdSeconds: config.geofenceExitThresholdSeconds,
     }),
+  visitedPlaces: (userId, range) =>
+    inferVisitedPlaces(userId, { repo, areaRepo, placeFinder, logger }, { range }),
 });
 
 app.listen(config.appPort, () => {

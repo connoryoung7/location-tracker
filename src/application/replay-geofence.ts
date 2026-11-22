@@ -2,7 +2,7 @@ import type { Area, LocationPayload } from '@/domain/types.ts';
 import type { GeofenceEvent } from '@/domain/events.ts';
 
 /** Redis uses the same spherical earth radius for GEO distances. */
-export function distanceMeters(a: Area, lat: number, lon: number): number {
+export function distanceMeters(a: { lat: number; lon: number }, lat: number, lon: number): number {
   const rad = Math.PI / 180;
   const h =
     Math.sin(((lat - a.lat) * rad) / 2) ** 2 +

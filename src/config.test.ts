@@ -18,6 +18,7 @@ describe('loadConfig', () => {
     'ENCRYPTION_KEY',
     'REDIS_URL',
     'GEOFENCE_EXIT_THRESHOLD_SECONDS',
+    'OVERPASS_URL',
   ] as const;
 
   beforeEach(() => {
@@ -55,6 +56,7 @@ describe('loadConfig', () => {
     expect(config.encryptionKey).toBe(validEncryptionKey);
     expect(config.redisUrl).toBe('redis://localhost:6379');
     expect(config.geofenceExitThresholdSeconds).toBe(60);
+    expect(config.overpassUrl).toBe('https://overpass-api.de/api/interpreter');
   });
 
   test('returns custom values from env vars', () => {
@@ -71,6 +73,7 @@ describe('loadConfig', () => {
     process.env.ENCRYPTION_KEY = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
     process.env.REDIS_URL = 'redis://redis.example.com:6380';
     process.env.GEOFENCE_EXIT_THRESHOLD_SECONDS = '120';
+    process.env.OVERPASS_URL = 'http://overpass.internal/api/interpreter';
 
     const config = loadConfig();
 
@@ -87,6 +90,12 @@ describe('loadConfig', () => {
     expect(config.encryptionKey).toBe('bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb');
     expect(config.redisUrl).toBe('redis://redis.example.com:6380');
     expect(config.geofenceExitThresholdSeconds).toBe(120);
+    expect(config.overpassUrl).toBe('http://overpass.internal/api/interpreter');
+  });
+
+  test('an empty OVERPASS_URL turns nearby-place lookups off', () => {
+    process.env.OVERPASS_URL = '  ';
+    expect(loadConfig().overpassUrl).toBeUndefined();
   });
 
   test('throws when ENCRYPTION_KEY is missing', () => {

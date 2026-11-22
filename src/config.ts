@@ -38,6 +38,12 @@ const ConfigSchema = z.object({
     }),
   REDIS_URL: z.string().default('redis://localhost:6379'),
   GEOFENCE_EXIT_THRESHOLD_SECONDS: z.coerce.number().default(60),
+  // The public instance, whose usage policy asks for modest, sequential use.
+  // An empty value turns nearby-place lookups off.
+  OVERPASS_URL: z
+    .string()
+    .default('https://overpass-api.de/api/interpreter')
+    .transform((url) => url.trim() || undefined),
 });
 
 export type Config = {
@@ -54,6 +60,8 @@ export type Config = {
   encryptionKey: string;
   redisUrl: string;
   geofenceExitThresholdSeconds: number;
+  /** Where visited places are looked up; undefined when lookups are turned off. */
+  overpassUrl?: string;
 };
 
 export function loadConfig(): Config {
@@ -71,6 +79,7 @@ export function loadConfig(): Config {
     ENCRYPTION_KEY,
     REDIS_URL,
     GEOFENCE_EXIT_THRESHOLD_SECONDS,
+    OVERPASS_URL,
   } = process.env;
   const env = ConfigSchema.parse({
     NODE_ENV,
@@ -86,6 +95,7 @@ export function loadConfig(): Config {
     ENCRYPTION_KEY,
     REDIS_URL,
     GEOFENCE_EXIT_THRESHOLD_SECONDS,
+    OVERPASS_URL,
   });
   return {
     nodeEnv: env.NODE_ENV,
@@ -101,5 +111,6 @@ export function loadConfig(): Config {
     encryptionKey: env.ENCRYPTION_KEY,
     redisUrl: env.REDIS_URL,
     geofenceExitThresholdSeconds: env.GEOFENCE_EXIT_THRESHOLD_SECONDS,
+    overpassUrl: env.OVERPASS_URL,
   };
 }
