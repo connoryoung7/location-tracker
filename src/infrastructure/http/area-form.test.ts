@@ -361,3 +361,129 @@ test('a user switch discarding a proposed draft reports it as abandoned', async 
   expect(form.hidden).toBe(true);
   expect(request).not.toHaveBeenCalled();
 });
+
+const HOME = { userId: 'AB', areaId: 'a1', name: 'Home', lat: 42.36, lon: -71.06, radius: 150 };
+
+test('editing an area opens it pre-filled, at the edit step, with its circle on the map', () => {
+  const { byId, document, form, preview, placementChanged, controller } = setup();
+
+  expect(controller.editArea(HOME)).toBe(true);
+
+  expect(form.hidden).toBe(false);
+  expect(byId('draw-heading').textContent).toBe('Edit area');
+  expect(byId('draw-fields').hidden).toBe(false);
+  expect(byId('draw-confirmation').hidden).toBe(true);
+  expect((form.elements.namedItem('name') as HTMLInputElement).value).toBe('Home');
+  expect((form.elements.namedItem('radius') as HTMLInputElement).value).toBe('150');
+  expect(placementChanged).toHaveBeenLastCalledWith('coordinates');
+  expect(preview).toHaveBeenLastCalledWith([-71.06, 42.36], 150);
+  expect(document.activeElement).toBe(form.elements.namedItem('name') as unknown as HTMLElement);
+});
+
+test('saving an edit replaces that area with PUT, only once confirmed', async () => {
+  const { byId, set, submit, request, saved, form, controller } = setup();
+  request.mockResolvedValueOnce(new Response('{"id":"a1"}', { status: 200 }));
+  controller.editArea(HOME);
+  set('name', 'Gym');
+  set('radius', '80');
+
+  await submit();
+  expect(byId('draw-submit').textContent).toBe('Save changes');
+  expect(byId('draw-review-note').textContent).toContain('replaces the name and circle');
+  expect(request).not.toHaveBeenCalled();
+  await submit();
+
+  const [url, options] = request.mock.calls[0]!;
+  expect(url).toBe('/areas/AB/a1');
+  expect(options.method).toBe('PUT');
+  // The owner is in the URL and cannot be changed.
+  expect(JSON.parse(options.body as string)).toEqual({
+    name: 'Gym',
+    lat: '42.36',
+    lon: '-71.06',
+    radius: '80',
+  });
+  expect(saved).toHaveBeenCalledTimes(1);
+  expect(form.hidden).toBe(true);
+  expect(byId('draw-heading').textContent).toBe('New area');
+});
+
+test('an edit of a deleted area keeps the changes and says why', async () => {
+  const { byId, submit, request, form, controller } = setup();
+  request.mockResolvedValueOnce(
+    new Response('{"error":"This area no longer exists."}', { status: 404 }),
+  );
+  controller.editArea(HOME);
+
+  await submit();
+  await submit();
+
+  expect(form.hidden).toBe(false);
+  expect(byId('form-error').textContent).toBe('This area no longer exists.');
+  expect((form.elements.namedItem('name') as HTMLInputElement).value).toBe('Home');
+});
+
+test('a failed edit save keeps the changes', async () => {
+  const { byId, submit, request, controller } = setup();
+  request.mockResolvedValueOnce(new Response('{}', { status: 503 }));
+  controller.editArea(HOME);
+
+  await submit();
+  await submit();
+
+  expect(byId('form-error').textContent).toBe('Could not save changes. Your edits have been kept.');
+});
+
+test('cancelling an edit saves nothing, and the next Add area creates a new one', async () => {
+  const { byId, set, submit, request, controller } = setup();
+  controller.editArea(HOME);
+  byId('draw-cancel').click();
+  expect(byId('draw-heading').textContent).toBe('New area');
+  expect(request).not.toHaveBeenCalled();
+
+  byId('draw-start').click();
+  set('name', 'Work');
+  controller.setGeometry([-71, 42], 90);
+  await submit();
+  expect(byId('draw-review-note').textContent).toContain('Confirm and create');
+  await submit();
+
+  expect(request.mock.calls[0]![0]).toBe('/areas');
+  expect(request.mock.calls[0]![1].method).toBe('POST');
+});
+
+test("another user's area, or any area while saving, is not opened", async () => {
+  const { form, submit, request, controller, byId, set } = setup(['AB', 'CD']);
+
+  expect(controller.editArea({ ...HOME, userId: 'CD' })).toBe(false);
+  expect(form.hidden).toBe(true);
+
+  let finishSaving = (_response: Response) => {};
+  request.mockImplementationOnce(
+    () => new Promise<Response>((resolve) => (finishSaving = resolve)),
+  );
+  byId('draw-start').click();
+  set('name', 'Work');
+  controller.setGeometry([-71, 42], 90);
+  await submit();
+  const saving = submit();
+  expect(controller.editArea(HOME)).toBe(false);
+  finishSaving(new Response('{}', { status: 201 }));
+  await saving;
+});
+
+test('editing replaces a draft in progress, and a pending proposal reports it as abandoned', async () => {
+  const { form, controller } = setup();
+  const proposal = controller.propose({
+    userId: 'AB',
+    name: 'Fresh Market',
+    lat: '42.37',
+    lon: '-71.04',
+    radius: '100',
+  });
+
+  controller.editArea(HOME);
+
+  expect(await proposal).toBe(false);
+  expect((form.elements.namedItem('name') as HTMLInputElement).value).toBe('Home');
+});

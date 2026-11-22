@@ -62,6 +62,9 @@ export type AreaFeature = {
     areaId: string;
     userId: string;
     name: string;
+    /** The circle's centre, so the map popup can open the area for editing. */
+    lat: number;
+    lon: number;
     radius: number;
     color: string;
   };
@@ -143,6 +146,8 @@ export function buildAreaMapView(areas: Area[]): AreaMapView {
         areaId: area.id,
         userId: area.userId,
         name: area.name,
+        lat: area.lat,
+        lon: area.lon,
         radius: area.radius,
         color: colorByUserId.get(area.userId)!,
       },

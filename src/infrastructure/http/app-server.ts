@@ -15,7 +15,7 @@ import {
   type VisitedPlaceView,
 } from '@/application/build-visited-place-view.ts';
 import type { VisitedPlace } from '@/application/infer-visited-places.ts';
-import { CreateAreaSchema } from '@/domain/schemas.ts';
+import { CreateAreaSchema, UpdateAreaSchema } from '@/domain/schemas.ts';
 import type { Area } from '@/domain/types.ts';
 import type {
   AreaEventRepository,
@@ -58,6 +58,11 @@ const VENDOR_PACKAGES = {
  */
 function escapeJsonForScript(value: unknown): string {
   return JSON.stringify(value).replace(/</g, '\\u003c');
+}
+
+/** One line naming each invalid field and what is wrong with it, joined with `; `. */
+function describeIssues(issues: { path: readonly PropertyKey[]; message: string }[]): string {
+  return issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`).join('; ');
 }
 
 /** Same limit as `CreateAreaSchema`, so every route accepts the same IDs. */
@@ -155,6 +160,16 @@ function renderAreaListFragment(userId: string, view: AreaListView): string {
           <td class="area-list-number">${Math.round(row.radius)} m</td>
           <td class="area-list-actions">
             <button type="button" class="area-list-show secondary outline" data-bounds="${escapeHtml(JSON.stringify(row.bounds))}">Show</button>
+            <button
+              type="button"
+              class="area-list-edit secondary outline"
+              data-user-id="${escapeHtml(row.userId)}"
+              data-area-id="${escapeHtml(row.areaId)}"
+              data-name="${escapeHtml(row.name)}"
+              data-lat="${row.lat}"
+              data-lon="${row.lon}"
+              data-radius="${row.radius}"
+            >Edit</button>
             <button
               type="button"
               class="area-list-delete outline"
@@ -413,6 +428,7 @@ function renderPage(selectedUserId?: string): string {
         element every ${REFRESH_INTERVAL}, which would discard half-typed input.
       -->
       <section class="panel" id="draw-panel" aria-labelledby="draw-heading">
+        <!-- The heading and review note switch to "Edit area" wording while an existing area is open. -->
         <h2 id="draw-heading">New area</h2>
         <button type="button" id="draw-start" class="block" disabled>Add area</button>
         <form id="draw-form" hidden>
@@ -439,7 +455,7 @@ function renderPage(selectedUserId?: string): string {
           </fieldset>
           <section id="draw-confirmation" class="draw-review" hidden aria-label="Confirm area">
             <h3>Review area</h3>
-            <p>The circle is a draft. Confirm and create adds it to your saved areas.</p>
+            <p id="draw-review-note">The circle is a draft. Confirm and create adds it to your saved areas.</p>
             <p id="draw-summary"></p>
             <button type="button" id="draw-back" class="secondary outline">Back to editing</button>
           </section>
@@ -678,9 +694,7 @@ export function createAppServer(deps: AppDeps) {
   app.post('/areas', async (req, res) => {
     const result = CreateAreaSchema.safeParse(req.body);
     if (!result.success) {
-      const message = result.error.issues
-        .map((issue) => `${issue.path.join('.')}: ${issue.message}`)
-        .join('; ');
+      const message = describeIssues(result.error.issues);
       if (req.get('accept') === 'application/json') {
         res.status(422).json({ error: message });
         return;
@@ -715,6 +729,34 @@ export function createAppServer(deps: AppDeps) {
 
     // Respond with the refreshed areas so the sidebar and map update together.
     await sendAreasFragment(res, result.data.userId);
+  });
+
+  // Changes an area's name and circle in place. JSON only: the area form is its one caller.
+  app.put('/areas/:userId/:areaId', async (req, res) => {
+    const result = UpdateAreaSchema.safeParse(req.body);
+    if (!result.success) {
+      res.status(422).json({ error: describeIssues(result.error.issues) });
+      return;
+    }
+
+    const { userId, areaId } = req.params;
+    try {
+      // Looked up first so an edit can never create an area, or reach another user's.
+      const area = await deps.areaRepo.getArea(userId, areaId);
+      if (!area) {
+        res.status(404).json({ error: 'This area no longer exists.' });
+        return;
+      }
+      // addArea upserts on the ID, so the area keeps its ID and owner. The geofence
+      // index keeps who is inside it, so the next location fires only real changes.
+      await deps.areaRepo.addArea({ ...area, ...result.data });
+    } catch (error) {
+      deps.logger.error('Failed to update area', error);
+      res.status(503).json({ error: 'Could not save changes. Your edits have been kept.' });
+      return;
+    }
+
+    res.json({ id: areaId });
   });
 
   app.delete('/areas/:userId/:areaId', async (req, res) => {

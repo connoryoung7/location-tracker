@@ -59,6 +59,7 @@ beforeEach(() => {
   areaRepo.healthCheck.mockClear();
   areaRepo.addArea.mockClear();
   areaRepo.removeArea.mockClear();
+  areaRepo.getArea.mockClear();
   areaEvents.listAreaEvents.mockReset();
   areaEvents.listAreaEvents.mockImplementation(() => Promise.resolve([]));
   visitedPlaces.mockReset();
@@ -196,6 +197,14 @@ describe('GET /fragments/area-list', () => {
     expect(html).not.toContain('<th scope="col">User</th>');
     // Show only zooms: there are no hidden users left to reveal.
     expect(html).toMatch(/class="area-list-show[^"]*" data-bounds="\[/);
+    // Edit carries the area so the form can open it pre-filled.
+    const edit = html.match(/<button[^>]*class="area-list-edit[^>]*>/s)![0];
+    expect(edit).toContain('data-user-id="AB"');
+    expect(edit).toContain('data-area-id="h"');
+    expect(edit).toContain('data-name="Home"');
+    expect(edit).toContain('data-lat="42.3601"');
+    expect(edit).toContain('data-lon="-71.0589"');
+    expect(edit).toContain('data-radius="100"');
   });
 
   test('escapes area names and user IDs', async () => {
@@ -210,6 +219,8 @@ describe('GET /fragments/area-list', () => {
     expect(html).not.toContain('<img');
     expect(html).not.toContain('<b>');
     expect(html).toContain('hx-delete="/areas/%22%3E%3Cb%3E/area-1"');
+    expect(html).toContain('data-name="&lt;img src=x onerror=alert(1)&gt;"');
+    expect(html).toContain('data-user-id="&quot;&gt;&lt;b&gt;"');
   });
 
   test('says so when the user has no areas', async () => {
@@ -623,6 +634,70 @@ describe('POST /areas', () => {
     );
 
     expect(res.status).toBe(503);
+  });
+});
+
+describe('PUT /areas/:userId/:areaId', () => {
+  const put = (path: string, body: unknown) =>
+    fetch(`${baseUrl}${path}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify(body),
+    });
+  const CHANGES = { name: 'Gym', lat: '42.35', lon: '-71.06', radius: '75.5' };
+  const readError = async (res: Response) => ((await res.json()) as { error: string }).error;
+
+  test('replaces the name and circle, keeping the ID and owner', async () => {
+    areaRepo.getArea.mockResolvedValueOnce(buildArea({ id: 'a1', userId: 'AB' }));
+
+    const res = await put('/areas/AB/a1', CHANGES);
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ id: 'a1' });
+    expect(areaRepo.getArea).toHaveBeenCalledWith('AB', 'a1');
+    expect(areaRepo.addArea).toHaveBeenCalledTimes(1);
+    expect(areaRepo.addArea.mock.calls[0]![0]).toEqual({
+      id: 'a1',
+      userId: 'AB',
+      name: 'Gym',
+      lat: 42.35,
+      lon: -71.06,
+      radius: 75.5,
+    });
+  });
+
+  test('never moves an area to another user', async () => {
+    areaRepo.getArea.mockResolvedValueOnce(buildArea({ id: 'a1', userId: 'AB' }));
+
+    await put('/areas/AB/a1', { ...CHANGES, userId: 'CD', id: 'other' });
+
+    expect(areaRepo.addArea.mock.calls[0]![0]).toMatchObject({ id: 'a1', userId: 'AB' });
+  });
+
+  test('cannot create an area: an unknown or deleted one is not found', async () => {
+    const res = await put('/areas/AB/missing', CHANGES);
+
+    expect(res.status).toBe(404);
+    expect(await readError(res)).toBe('This area no longer exists.');
+    expect(areaRepo.addArea).not.toHaveBeenCalled();
+  });
+
+  test('rejects invalid changes, naming the field', async () => {
+    const res = await put('/areas/AB/a1', { ...CHANGES, radius: '0' });
+
+    expect(res.status).toBe(422);
+    expect(await readError(res)).toContain('radius');
+    expect(areaRepo.getArea).not.toHaveBeenCalled();
+  });
+
+  test('reports a store failure without claiming the edit was saved', async () => {
+    areaRepo.getArea.mockResolvedValueOnce(buildArea({ id: 'a1' }));
+    areaRepo.addArea.mockRejectedValueOnce(new Error('db down'));
+
+    const res = await put('/areas/AB/a1', CHANGES);
+
+    expect(res.status).toBe(503);
+    expect(await readError(res)).toContain('Could not save changes');
   });
 });
 

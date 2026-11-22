@@ -277,7 +277,42 @@ areaListDialog.addEventListener('click', (event) => {
   if (event.target === areaListDialog) areaListDialog.close();
 });
 
+/**
+ * Opens an existing area in the area form and frames its circle. From the areas
+ * list and the area popup alike; `areaForm` and `previewRing` are declared further
+ * down, and this only runs once a click arrives.
+ */
+function startAreaEdit(area) {
+  if (!areaForm.editArea(area)) {
+    return;
+  }
+
+  const ring = previewRing([area.lon, area.lat], area.radius);
+  const lons = ring.map(([lon]) => lon);
+  const lats = ring.map(([, lat]) => lat);
+  map.fitBounds([Math.min(...lons), Math.min(...lats), Math.max(...lons), Math.max(...lats)], {
+    padding: 60,
+    maxZoom: 17,
+  });
+}
+
 document.getElementById('area-list').addEventListener('click', (event) => {
+  const edit = event.target.closest('.area-list-edit');
+  if (edit) {
+    // The form lives in the sidebar, which the modal list would cover.
+    areaListDialog.close();
+    const { userId, areaId, name, lat, lon, radius } = edit.dataset;
+    startAreaEdit({
+      userId,
+      areaId,
+      name,
+      lat: Number(lat),
+      lon: Number(lon),
+      radius: Number(radius),
+    });
+    return;
+  }
+
   const button = event.target.closest('.area-list-show');
   if (!button) {
     return;
@@ -331,7 +366,7 @@ map.on('click', 'areas-fill', (event) => {
     return;
   }
 
-  const { name, userId, radius, areaId } = feature.properties;
+  const { name, userId, lat, lon, radius, areaId } = feature.properties;
 
   // Built as DOM rather than an HTML string: area names are untrusted, and
   // textContent cannot be escaped wrong.
@@ -354,9 +389,22 @@ map.on('click', 'areas-fill', (event) => {
   remove.setAttribute('hx-swap', 'innerHTML');
   remove.setAttribute('hx-confirm', `Delete "${name}"?`);
 
-  container.append(label, remove);
+  const editButton = document.createElement('button');
+  editButton.type = 'button';
+  editButton.className = 'popup-edit secondary outline';
+  editButton.textContent = 'Edit';
+
+  const actions = document.createElement('div');
+  actions.className = 'popup-actions';
+  actions.append(editButton, remove);
+  container.append(label, actions);
 
   const popup = showPopup(new Popup().setLngLat(event.lngLat).setDOMContent(container));
+  // Closed first: the draft's circle and centre marker sit right under the popup.
+  editButton.addEventListener('click', () => {
+    popup.remove();
+    startAreaEdit({ userId, areaId, name, lat, lon, radius });
+  });
   // The button was created after htmx scanned the page, so wire it up by hand.
   window.htmx?.process(container);
   // Closed once the request is actually sent: the confirm dialog is async, so
