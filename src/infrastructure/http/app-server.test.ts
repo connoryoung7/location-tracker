@@ -181,6 +181,49 @@ describe('GET /fragments/events', () => {
     expect(view.featureCollection.features).toHaveLength(2);
   });
 
+  test('the events filter sends a time zone field with the user', async () => {
+    const html = await fetch(`${baseUrl}/`).then((res) => res.text());
+    const filter = html.slice(html.indexOf('<form id="events-filter">'));
+
+    expect(filter.slice(0, filter.indexOf('</form>'))).toContain('name="tz"');
+  });
+
+  test("groups events under headings for the viewer's days", async () => {
+    // 03:00 UTC on Nov 15, 2023 is still the evening of Nov 14 in New York.
+    const lateEvening = Date.parse('2023-11-15T03:00:00Z') / 1000;
+    areaEvents.listAreaEvents.mockImplementation(() =>
+      Promise.resolve([{ ...entered, tst: lateEvening }, entered]),
+    );
+
+    const newYork = await fetch(
+      `${baseUrl}/fragments/events?userId=AB&tz=${encodeURIComponent('America/New_York')}`,
+    ).then((res) => res.text());
+    const utc = await fetch(`${baseUrl}/fragments/events?userId=AB&tz=UTC`).then((res) =>
+      res.text(),
+    );
+
+    expect(newYork.match(/class="event-day"/g)).toHaveLength(1);
+    expect(newYork).toContain('<time datetime="2023-11-14">Tue, Nov 14, 2023</time>');
+    expect(newYork).toContain('2 events');
+    expect(newYork).toContain('>10:00 PM</time>');
+    expect(readEventsData(newYork).timeZone).toBe('America/New_York');
+
+    expect(utc.match(/class="event-day"/g)).toHaveLength(2);
+    expect(utc).toContain('<time datetime="2023-11-15">');
+    expect(utc).toContain('1 event<');
+  });
+
+  test('falls back to UTC days for an unknown time zone', async () => {
+    areaEvents.listAreaEvents.mockImplementation(() => Promise.resolve([entered]));
+
+    const html = await fetch(`${baseUrl}/fragments/events?userId=AB&tz=Not%2FAZone`).then((res) =>
+      res.text(),
+    );
+
+    expect(html).toContain('<time datetime="2023-11-14">');
+    expect(readEventsData(html).timeZone).toBe('UTC');
+  });
+
   test('escapes area names in the list and the embedded JSON', async () => {
     areaEvents.listAreaEvents.mockImplementation(() =>
       Promise.resolve([{ ...entered, areaName: '</script><img src=x onerror=alert(1)>' }]),

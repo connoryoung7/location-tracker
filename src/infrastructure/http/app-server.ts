@@ -2,7 +2,11 @@ import express from 'express';
 import escapeHtml from 'escape-html';
 import { dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { buildAreaEventView, type AreaEventView } from '@/application/build-area-event-view.ts';
+import {
+  buildAreaEventView,
+  type AreaEventListRow,
+  type AreaEventView,
+} from '@/application/build-area-event-view.ts';
 import { buildAreaListView, type AreaListView } from '@/application/build-area-list-view.ts';
 import { buildAreaMapView, type AreaMapView } from '@/application/build-area-map-view.ts';
 import { CreateAreaSchema } from '@/domain/schemas.ts';
@@ -134,18 +138,31 @@ function renderAreaListFragment(view: AreaListView): string {
 /** How many of the selected user's most recent events the panel shows. */
 const EVENT_LIST_LIMIT = 100;
 
+function renderEventRow(row: AreaEventListRow): string {
+  return `
+            <li class="event-row event-${row.kind}">
+              <button type="button" class="event-locate" data-lon="${row.lon}" data-lat="${row.lat}">
+                <span class="event-kind">${row.kind === 'entered' ? 'Entered' : 'Exited'}</span>
+                <span class="event-area">${escapeHtml(row.areaLabel)}</span>
+                <time datetime="${row.isoTime}">${escapeHtml(row.timeLabel)}</time>
+              </button>
+            </li>`;
+}
+
 function renderEventsFragment(view: AreaEventView): string {
-  const rows = view.rows
-    .map(
-      (row) => `
-      <li class="event-row event-${row.kind}">
-        <button type="button" class="event-locate" data-lon="${row.lon}" data-lat="${row.lat}">
-          <span class="event-kind">${row.kind === 'entered' ? 'Entered' : 'Exited'}</span>
-          <span class="event-area">${escapeHtml(row.areaLabel)}</span>
-          <time datetime="${row.isoTime}">${row.isoTime}</time>
-        </button>
-      </li>`,
-    )
+  const days = view.days
+    .map((day) => {
+      const count = `${day.rows.length} ${day.rows.length === 1 ? 'event' : 'events'}`;
+      return `
+      <li class="event-day">
+        <h3 class="event-day-heading">
+          <time datetime="${day.dateKey}">${escapeHtml(day.label)}</time>
+          <span class="event-day-count">${count}</span>
+        </h3>
+        <ol class="event-list">${day.rows.map(renderEventRow).join('')}
+        </ol>
+      </li>`;
+    })
     .join('');
 
   const emptyState =
@@ -153,7 +170,7 @@ function renderEventsFragment(view: AreaEventView): string {
 
   return `
     ${emptyState}
-    <ol class="event-list">${rows}</ol>
+    <ol class="event-days">${days}</ol>
     <script type="application/json" id="events-data">${escapeJsonForScript(view)}</script>
   `;
 }
@@ -281,6 +298,8 @@ function renderPage(): string {
       <section class="panel" id="events-panel" aria-labelledby="events-heading">
         <h2 id="events-heading">Recent events</h2>
         <form id="events-filter">
+          <!-- Set by app.js to the browser's zone, so events are grouped into the viewer's days. -->
+          <input type="hidden" name="tz" id="events-tz" />
           <label>User <select name="userId" data-user-select disabled><option value="">Loading users…</option></select></label>
         </form>
         <!-- Refreshed when the user changes, after a recompute, and on the same poll as the areas. -->
@@ -405,7 +424,8 @@ export function createAppServer(deps: AppDeps) {
 
     try {
       const events = await deps.areaEvents.listAreaEvents(userId, { limit: EVENT_LIST_LIMIT });
-      res.type('html').send(renderEventsFragment(buildAreaEventView(userId, events)));
+      const timeZone = typeof req.query.tz === 'string' ? req.query.tz : undefined;
+      res.type('html').send(renderEventsFragment(buildAreaEventView(userId, events, { timeZone })));
     } catch (error) {
       deps.logger.error('Failed to load events', error);
       res.status(503).type('html').send(renderEventsError());
