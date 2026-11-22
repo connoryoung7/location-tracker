@@ -7,17 +7,39 @@ import {
   type AreaEventListRow,
   type AreaEventView,
 } from '@/application/build-area-event-view.ts';
-import { buildAreaListView, type AreaListView } from '@/application/build-area-list-view.ts';
-import { buildAreaMapView, type AreaMapView } from '@/application/build-area-map-view.ts';
+import {
+  buildAreaListView,
+  type AreaCategoryRow,
+  type AreaListRow,
+  type AreaListView,
+} from '@/application/build-area-list-view.ts';
+import {
+  buildAreaMapView,
+  type AreaColorKey,
+  type AreaMapView,
+} from '@/application/build-area-map-view.ts';
 import {
   buildVisitedPlaceView,
   type VisitedPlaceRow,
   type VisitedPlaceView,
 } from '@/application/build-visited-place-view.ts';
 import type { VisitedPlace } from '@/application/infer-visited-places.ts';
-import { CreateAreaSchema, UpdateAreaSchema } from '@/domain/schemas.ts';
-import type { Area } from '@/domain/types.ts';
+import { pickAreaCategoryColor } from '@/application/pick-area-category-color.ts';
+import {
+  CreateAreaCategorySchema,
+  CreateCategorizedAreaSchema,
+  SetAreaCategorySchema,
+  UpdateAreaCategorySchema,
+  UpdateAreaSchema,
+} from '@/domain/schemas.ts';
+import {
+  AREA_CATEGORY_COLORS,
+  type Area,
+  type AreaCategory,
+  type AreaCategoryColor,
+} from '@/domain/types.ts';
 import type {
+  AreaCategoryRepository,
   AreaEventRepository,
   AreaRepository,
   Logger,
@@ -36,6 +58,7 @@ export interface AppDeps {
   /** Works out where a user stopped within `range` (Unix epoch seconds). */
   visitedPlaces?: (userId: string, range: { from?: number }) => Promise<VisitedPlace[]>;
   areaRepo: AreaRepository;
+  areaCategories: AreaCategoryRepository;
   areaEvents: AreaEventRepository;
   logger: Logger;
   metrics: MetricsCollector;
@@ -60,9 +83,16 @@ function escapeJsonForScript(value: unknown): string {
   return JSON.stringify(value).replace(/</g, '\\u003c');
 }
 
-/** One line naming each invalid field and what is wrong with it, joined with `; `. */
+/**
+ * One line naming each invalid field and what is wrong with it, joined with `; `.
+ * An issue about the whole input (e.g. "change the name or the colour") has no field.
+ */
 function describeIssues(issues: { path: readonly PropertyKey[]; message: string }[]): string {
-  return issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`).join('; ');
+  return issues
+    .map((issue) =>
+      issue.path.length > 0 ? `${issue.path.join('.')}: ${issue.message}` : issue.message,
+    )
+    .join('; ');
 }
 
 /** Same limit as `CreateAreaSchema`, so every route accepts the same IDs. */
@@ -80,39 +110,86 @@ function parseUserId(value: unknown): UserIdParam {
   return { kind: 'valid', userId: value };
 }
 
-/** The areas data the map reads, tagged with whose areas they are. */
-type AreasPanelData = AreaMapView & { userId: string };
+/**
+ * The areas data the map reads, tagged with whose areas they are. It also
+ * carries the user's categories, which the New area form offers.
+ */
+type AreasPanelData = AreaMapView & {
+  userId: string;
+  categories: Pick<AreaCategory, 'id' | 'name' | 'color'>[];
+};
 
 function renderAreasData(data: AreasPanelData): string {
   return `<script type="application/json" id="areas-data">${escapeJsonForScript(data)}</script>`;
 }
 
-function renderAreasFragment(userId: string, areas: Area[]): string {
-  const data = renderAreasData({ userId, ...buildAreaMapView(areas) });
-  const { rows } = buildAreaListView(areas);
-  if (rows.length === 0) {
-    return `
-    <p class="legend-empty">No areas for ${escapeHtml(userId)} yet. Use <strong>Add area</strong> to draw one.</p>
-    ${data}
-  `;
-  }
+/** How each palette key is named in the colour pickers. */
+const COLOR_LABELS: Record<AreaCategoryColor, string> = {
+  blue: 'Blue',
+  orange: 'Orange',
+  aqua: 'Aqua',
+};
 
-  const items = rows
+/** A category's colour beside its name. The page's stylesheet turns the key into a shade. */
+function renderSwatch(colorKey: AreaColorKey): string {
+  return `<span class="category-swatch" data-color="${colorKey}" aria-hidden="true"></span>`;
+}
+
+function renderAreaItems(rows: AreaListRow[]): string {
+  return rows
     .map(
       (row) => `
       <li>
         <button type="button" class="area-locate" data-bounds="${escapeHtml(JSON.stringify(row.bounds))}">
-          <span class="legend-swatch" style="background:${escapeHtml(row.color)}"></span>
           <span class="area-name">${escapeHtml(row.name)}</span>
           <span class="area-radius">${Math.round(row.radius)} m</span>
         </button>
       </li>`,
     )
     .join('');
+}
+
+function renderAreasFragment(userId: string, areas: Area[], categories: AreaCategory[]): string {
+  const data = renderAreasData({
+    userId,
+    ...buildAreaMapView(areas, categories),
+    categories: categories.map(({ id, name, color }) => ({ id, name, color })),
+  });
+  const view = buildAreaListView(areas, categories);
+  if (view.rows.length === 0) {
+    return `
+    <p class="legend-empty">No areas for ${escapeHtml(userId)} yet. Use <strong>Add area</strong> to draw one.</p>
+    ${data}
+  `;
+  }
+
+  const count = `<p class="area-count">${view.rows.length} ${view.rows.length === 1 ? 'area' : 'areas'}</p>`;
+  // Without any categories there is nothing to group by: keep the plain list.
+  if (categories.length === 0) {
+    return `
+    ${count}
+    <ul class="area-names">${renderAreaItems(view.rows)}</ul>
+    ${data}
+  `;
+  }
+
+  const groups = view.groups
+    .map(
+      (group) => `
+      <section class="area-group">
+        <h3 class="area-group-heading">
+          ${renderSwatch(group.category?.color ?? 'none')}
+          <span class="area-group-name">${group.category ? escapeHtml(group.category.name) : 'Uncategorised'}</span>
+          <span class="area-group-count">${group.rows.length}</span>
+        </h3>
+        <ul class="area-names">${renderAreaItems(group.rows)}</ul>
+      </section>`,
+    )
+    .join('');
 
   return `
-    <p class="area-count">${rows.length} ${rows.length === 1 ? 'area' : 'areas'}</p>
-    <ul class="area-names">${items}</ul>
+    ${count}
+    ${groups}
     ${data}
   `;
 }
@@ -124,7 +201,7 @@ function renderAreasFragment(userId: string, areas: Area[]): string {
 function renderAreasPrompt(): string {
   return `
     <p class="legend-empty">Select a user above to see their areas.</p>
-    ${renderAreasData({ userId: '', ...buildAreaMapView([]) })}
+    ${renderAreasData({ userId: '', ...buildAreaMapView([]), categories: [] })}
   `;
 }
 
@@ -146,9 +223,90 @@ function formatCoordinate(value: number): string {
   return value.toFixed(5);
 }
 
-function renderAreaListFragment(userId: string, view: AreaListView): string {
+function renderColorOptions(selected: AreaCategoryColor): string {
+  return AREA_CATEGORY_COLORS.map(
+    (color) =>
+      `<option value="${color}"${color === selected ? ' selected' : ''}>${COLOR_LABELS[color]}</option>`,
+  ).join('');
+}
+
+/** The Category cell of one area: changing it saves straight away. */
+function renderAreaCategorySelect(row: AreaListRow, categories: AreaCategoryRow[]): string {
+  const options = categories
+    .map(
+      (category) =>
+        `<option value="${escapeHtml(category.id)}"${category.id === row.categoryId ? ' selected' : ''}>${escapeHtml(category.name)}</option>`,
+    )
+    .join('');
+  return `
+            <span class="area-list-category">
+              ${renderSwatch(row.colorKey)}
+              <select
+                class="area-category-select"
+                name="categoryId"
+                aria-label="${escapeHtml(`Category for ${row.name}`)}"
+                hx-patch="/areas/${encodeURIComponent(row.userId)}/${encodeURIComponent(row.areaId)}"
+                hx-trigger="change"
+                hx-target="#area-list"
+                hx-swap="innerHTML"
+              ><option value=""${row.categoryId === null ? ' selected' : ''}>None</option>${options}</select>
+            </span>`;
+}
+
+/** Rename, recolour, delete, and add the user's categories. */
+function renderCategoryManager(
+  userId: string,
+  categories: AreaCategoryRow[],
+  error?: string,
+): string {
+  const rows = categories
+    .map((category) => {
+      const path = `/categories/${encodeURIComponent(userId)}/${encodeURIComponent(category.id)}`;
+      const consequence =
+        category.areaCount === 0
+          ? 'It has no areas.'
+          : `${category.areaCount} ${category.areaCount === 1 ? 'area' : 'areas'} will become uncategorised.`;
+      return `
+        <li class="category-row">
+          <form class="category-edit" hx-patch="${path}" hx-target="#area-list" hx-swap="innerHTML">
+            ${renderSwatch(category.color)}
+            <input type="text" name="name" value="${escapeHtml(category.name)}" required maxlength="100" aria-label="${escapeHtml(`Name of ${category.name}`)}" />
+            <select name="color" aria-label="${escapeHtml(`Colour of ${category.name}`)}">${renderColorOptions(category.color)}</select>
+            <button type="submit" class="secondary outline">Save</button>
+          </form>
+          <button
+            type="button"
+            class="category-delete outline"
+            hx-delete="${path}"
+            hx-target="#area-list"
+            hx-swap="innerHTML"
+            hx-confirm="${escapeHtml(`Delete "${category.name}"? ${consequence}`)}"
+          >Delete</button>
+        </li>`;
+    })
+    .join('');
+
+  return `
+    <section class="category-manager" aria-labelledby="category-manager-heading">
+      <h4 id="category-manager-heading">Categories</h4>
+      ${error ? `<p class="notice" data-tone="error" role="alert">${escapeHtml(error)}</p>` : ''}
+      ${categories.length === 0 ? '<p class="legend-empty">No categories yet.</p>' : `<ul class="category-list">${rows}</ul>`}
+      <form class="category-add" hx-post="/categories" hx-target="#area-list" hx-swap="innerHTML">
+        <input type="hidden" name="userId" value="${escapeHtml(userId)}" />
+        <input type="text" name="name" required maxlength="100" placeholder="New category" aria-label="New category name" />
+        <button type="submit" class="secondary">Add category</button>
+      </form>
+    </section>`;
+}
+
+function renderAreaListFragment(
+  userId: string,
+  view: AreaListView,
+  options: { categoryError?: string } = {},
+): string {
+  const manager = renderCategoryManager(userId, view.categories, options.categoryError);
   if (view.rows.length === 0) {
-    return `<p class="legend-empty">No areas for ${escapeHtml(userId)} yet.</p>`;
+    return `<p class="legend-empty">No areas for ${escapeHtml(userId)} yet.</p>${manager}`;
   }
 
   const rows = view.rows
@@ -156,6 +314,7 @@ function renderAreaListFragment(userId: string, view: AreaListView): string {
       (row) => `
         <tr>
           <th scope="row" class="area-list-name">${escapeHtml(row.name)}</th>
+          <td>${renderAreaCategorySelect(row, view.categories)}</td>
           <td class="area-list-number">${formatCoordinate(row.lat)}, ${formatCoordinate(row.lon)}</td>
           <td class="area-list-number">${Math.round(row.radius)} m</td>
           <td class="area-list-actions">
@@ -187,10 +346,11 @@ function renderAreaListFragment(userId: string, view: AreaListView): string {
     <p class="area-list-count">${view.rows.length} ${view.rows.length === 1 ? 'area' : 'areas'}</p>
     <table class="area-list">
       <thead>
-        <tr><th scope="col">Name</th><th scope="col">Centre</th><th scope="col">Radius</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr>
+        <tr><th scope="col">Name</th><th scope="col">Category</th><th scope="col">Centre</th><th scope="col">Radius</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr>
       </thead>
       <tbody>${rows}</tbody>
     </table>
+    ${manager}
   `;
 }
 
@@ -445,6 +605,15 @@ function renderPage(selectedUserId?: string): string {
             </label>
             <p class="draw-hint" id="draw-placement-hint">Click the map to place the centre, move to size the circle, then click again.</p>
             <label>Name <input type="text" name="name" required maxlength="200" /></label>
+            <!-- Filled by app.js from the user's categories in the areas fragment.
+                 Hidden while editing: an area's category is changed in List areas. -->
+            <label id="draw-category-label">Category
+              <select name="categoryId" id="draw-category">
+                <option value="" selected>None</option>
+                <option value="__new__">New category…</option>
+              </select>
+            </label>
+            <label id="draw-category-name-label" hidden>New category name <input type="text" name="categoryName" id="draw-category-name" maxlength="100" /></label>
             <p class="draw-readout" id="draw-readout">No centre set</p>
             <details id="draw-coordinates">
               <summary>Adjust coordinates and radius</summary>
@@ -536,6 +705,15 @@ function renderPage(selectedUserId?: string): string {
 </html>`;
 }
 
+/** Whether the caller asked for JSON rather than a page fragment. */
+function wantsJson(req: express.Request): boolean {
+  return req.get('accept') === 'application/json';
+}
+
+function nameTakenMessage(name: string): string {
+  return `There's already a category called "${name}".`;
+}
+
 export function createAppServer(deps: AppDeps) {
   const app = express();
 
@@ -605,12 +783,140 @@ export function createAppServer(deps: AppDeps) {
       res.status(422).type('html').send(renderUserError());
       return;
     }
+    await sendAreaListFragment(res, user.userId);
+  });
+
+  app.get('/categories', async (req, res) => {
+    const user = parseUserId(req.query.userId);
+    if (user.kind !== 'valid') {
+      res.status(422).json({ error: 'Select a user.' });
+      return;
+    }
     try {
-      const areas = await deps.areaRepo.listAreas(user.userId);
-      res.type('html').send(renderAreaListFragment(user.userId, buildAreaListView(areas)));
+      res.json(await deps.areaCategories.listCategories(user.userId));
     } catch (error) {
-      deps.logger.error('Failed to load the area list', error);
-      res.status(503).type('html').send(renderAreasError());
+      deps.logger.error('Failed to load categories', error);
+      res.status(503).json({ error: 'Could not load categories. Please retry.' });
+    }
+  });
+
+  app.post('/categories', async (req, res) => {
+    const result = CreateAreaCategorySchema.safeParse(req.body);
+    const user = parseUserId(req.body?.userId);
+    if (!result.success) {
+      await sendCategoryRejection(req, res, user, 422, describeIssues(result.error.issues));
+      return;
+    }
+
+    const { userId, name } = result.data;
+    try {
+      const color =
+        result.data.color ??
+        pickAreaCategoryColor(await deps.areaCategories.listCategories(userId));
+      const id = randomUUID();
+      const outcome = await deps.areaCategories.addCategory({ id, userId, name, color });
+      if (outcome === 'name-taken') {
+        await sendCategoryRejection(req, res, user, 409, nameTakenMessage(name));
+        return;
+      }
+      if (wantsJson(req)) {
+        res.status(201).json({ id, color });
+        return;
+      }
+      await sendAreaListFragment(res, userId);
+    } catch (error) {
+      deps.logger.error('Failed to create category', error);
+      sendStoreFailure(req, res);
+    }
+  });
+
+  app.patch('/categories/:userId/:categoryId', async (req, res) => {
+    const user = parseUserId(req.params.userId);
+    const result = UpdateAreaCategorySchema.safeParse(req.body ?? {});
+    if (user.kind !== 'valid' || !result.success) {
+      const message = result.success ? 'Unknown user.' : describeIssues(result.error.issues);
+      await sendCategoryRejection(req, res, user, 422, message);
+      return;
+    }
+
+    try {
+      const outcome = await deps.areaCategories.updateCategory(
+        user.userId,
+        req.params.categoryId,
+        result.data,
+      );
+      if (outcome === 'not-found') {
+        await sendCategoryRejection(req, res, user, 404, 'That category no longer exists.');
+        return;
+      }
+      if (outcome === 'name-taken') {
+        await sendCategoryRejection(req, res, user, 409, nameTakenMessage(result.data.name!));
+        return;
+      }
+      if (wantsJson(req)) {
+        res.json(await deps.areaCategories.getCategory(user.userId, req.params.categoryId));
+        return;
+      }
+      await sendAreaListFragment(res, user.userId);
+    } catch (error) {
+      deps.logger.error('Failed to update category', error);
+      sendStoreFailure(req, res);
+    }
+  });
+
+  app.delete('/categories/:userId/:categoryId', async (req, res) => {
+    const user = parseUserId(req.params.userId);
+    if (user.kind !== 'valid') {
+      await sendCategoryRejection(req, res, user, 422, 'Unknown user.');
+      return;
+    }
+
+    try {
+      const isRemoved = await deps.areaCategories.removeCategory(
+        user.userId,
+        req.params.categoryId,
+      );
+      if (wantsJson(req)) {
+        res.status(isRemoved ? 204 : 404).end();
+        return;
+      }
+      // Deleting one that is already gone needs no error: the list shows it's gone.
+      await sendAreaListFragment(res, user.userId);
+    } catch (error) {
+      deps.logger.error('Failed to delete category', error);
+      sendStoreFailure(req, res);
+    }
+  });
+
+  app.patch('/areas/:userId/:areaId', async (req, res) => {
+    const user = parseUserId(req.params.userId);
+    const result = SetAreaCategorySchema.safeParse(req.body ?? {});
+    if (user.kind !== 'valid' || !result.success) {
+      const message = result.success ? 'Unknown user.' : describeIssues(result.error.issues);
+      await sendCategoryRejection(req, res, user, 422, message);
+      return;
+    }
+
+    const { categoryId } = result.data;
+    try {
+      // An area can only be in one of its own user's categories; the database
+      // can't enforce that, so it's checked here.
+      if (categoryId && !(await deps.areaCategories.getCategory(user.userId, categoryId))) {
+        await sendCategoryRejection(req, res, user, 422, "Choose one of this user's categories.");
+        return;
+      }
+      if (!(await deps.areaRepo.setAreaCategory(user.userId, req.params.areaId, categoryId))) {
+        await sendCategoryRejection(req, res, user, 404, 'That area no longer exists.');
+        return;
+      }
+      if (wantsJson(req)) {
+        res.json({ areaId: req.params.areaId, categoryId });
+        return;
+      }
+      await sendAreaListFragment(res, user.userId);
+    } catch (error) {
+      deps.logger.error("Failed to change an area's category", error);
+      sendStoreFailure(req, res);
     }
   });
 
@@ -692,10 +998,8 @@ export function createAppServer(deps: AppDeps) {
   });
 
   app.post('/areas', async (req, res) => {
-    const result = CreateAreaSchema.safeParse(req.body);
-    if (!result.success) {
-      const message = describeIssues(result.error.issues);
-      if (req.get('accept') === 'application/json') {
+    const rejectArea = async (message: string) => {
+      if (wantsJson(req)) {
         res.status(422).json({ error: message });
         return;
       }
@@ -708,27 +1012,46 @@ export function createAppServer(deps: AppDeps) {
           .type('html')
           .send(renderAreasPrompt() + renderFormErrorOob(message));
       }
+    };
+
+    const result = CreateCategorizedAreaSchema.safeParse(req.body);
+    if (!result.success) {
+      await rejectArea(describeIssues(result.error.issues));
       return;
     }
 
+    const { userId, name, lat, lon, radius, categoryId, categoryName } = result.data;
     const id = randomUUID();
     try {
+      const category = await resolveCategory(userId, { categoryId, categoryName });
+      if (category === 'not-found') {
+        await rejectArea("Choose one of this user's categories.");
+        return;
+      }
       // The server owns the ID so a client cannot overwrite an existing area by
       // posting a known one.
-      await deps.areaRepo.addArea({ id, ...result.data });
+      await deps.areaRepo.addArea({
+        id,
+        userId,
+        name,
+        lat,
+        lon,
+        radius,
+        ...(category ? { categoryId: category.id } : {}),
+      });
     } catch (error) {
       deps.logger.error('Failed to create area', error);
       res.status(503).type('html').send(renderAreasError());
       return;
     }
 
-    if (req.get('accept') === 'application/json') {
+    if (wantsJson(req)) {
       res.status(201).json({ id });
       return;
     }
 
     // Respond with the refreshed areas so the sidebar and map update together.
-    await sendAreasFragment(res, result.data.userId);
+    await sendAreasFragment(res, userId);
   });
 
   // Changes an area's name and circle in place. JSON only: the area form is its one caller.
@@ -759,6 +1082,83 @@ export function createAppServer(deps: AppDeps) {
     res.json({ id: areaId });
   });
 
+  /**
+   * The category a new area goes in: an existing one of the user's by ID, or one
+   * named by the user, reused if they already have it (ignoring case) and
+   * created if not. `undefined` when the area is uncategorised.
+   */
+  async function resolveCategory(
+    userId: string,
+    { categoryId, categoryName }: { categoryId?: string; categoryName?: string },
+  ): Promise<AreaCategory | undefined | 'not-found'> {
+    if (categoryId) {
+      return (await deps.areaCategories.getCategory(userId, categoryId)) ?? 'not-found';
+    }
+    if (!categoryName) return undefined;
+
+    const existing = await deps.areaCategories.findCategoryByName(userId, categoryName);
+    if (existing) return existing;
+    const category: AreaCategory = {
+      id: randomUUID(),
+      userId,
+      name: categoryName,
+      color: pickAreaCategoryColor(await deps.areaCategories.listCategories(userId)),
+    };
+    // Lost a race to an identical name: use the one that won.
+    if ((await deps.areaCategories.addCategory(category)) === 'name-taken') {
+      return (await deps.areaCategories.findCategoryByName(userId, categoryName)) ?? 'not-found';
+    }
+    return category;
+  }
+
+  /** The areas list and Categories section, for the modal. */
+  async function sendAreaListFragment(
+    res: express.Response,
+    userId: string,
+    options: { status?: number; categoryError?: string } = {},
+  ): Promise<void> {
+    try {
+      const [areas, categories] = await Promise.all([
+        deps.areaRepo.listAreas(userId),
+        deps.areaCategories.listCategories(userId),
+      ]);
+      res
+        .status(options.status ?? 200)
+        .type('html')
+        .send(renderAreaListFragment(userId, buildAreaListView(areas, categories), options));
+    } catch (error) {
+      deps.logger.error('Failed to load the area list', error);
+      res.status(503).type('html').send(renderAreasError());
+    }
+  }
+
+  /**
+   * A category change that can't be made. JSON callers get the conventional
+   * status; the page gets 422 (the only client error its htmx config swaps in)
+   * with the list re-rendered and the reason in the Categories section.
+   */
+  async function sendCategoryRejection(
+    req: express.Request,
+    res: express.Response,
+    user: UserIdParam,
+    status: number,
+    message: string,
+  ): Promise<void> {
+    if (wantsJson(req) || user.kind !== 'valid') {
+      res.status(status).json({ error: message });
+      return;
+    }
+    await sendAreaListFragment(res, user.userId, { status: 422, categoryError: message });
+  }
+
+  function sendStoreFailure(req: express.Request, res: express.Response): void {
+    if (wantsJson(req)) {
+      res.status(503).json({ error: 'Could not reach the area store. Please retry.' });
+      return;
+    }
+    res.status(503).type('html').send(renderAreasError());
+  }
+
   app.delete('/areas/:userId/:areaId', async (req, res) => {
     try {
       await deps.areaRepo.removeArea(req.params.userId, req.params.areaId);
@@ -778,11 +1178,17 @@ export function createAppServer(deps: AppDeps) {
     options: { status?: number; formError?: string } = {},
   ): Promise<void> {
     try {
-      const areas = await deps.areaRepo.listAreas(userId);
+      const [areas, categories] = await Promise.all([
+        deps.areaRepo.listAreas(userId),
+        deps.areaCategories.listCategories(userId),
+      ]);
       res
         .status(options.status ?? 200)
         .type('html')
-        .send(renderAreasFragment(userId, areas) + renderFormErrorOob(options.formError ?? ''));
+        .send(
+          renderAreasFragment(userId, areas, categories) +
+            renderFormErrorOob(options.formError ?? ''),
+        );
     } catch (error) {
       // The page polls this endpoint, so an outage would otherwise leave a blank
       // sidebar with the reason buried in the server log. Degrade to a visible

@@ -206,6 +206,29 @@ export class PostgresLocationRepository
       )
     `;
     await this.conn`CREATE INDEX IF NOT EXISTS areas_user_id_idx ON areas (user_id)`;
+    // Categories group a user's areas. Created before areas.category_id, which
+    // references it; names are unique per user regardless of case.
+    await this.conn`
+      CREATE TABLE IF NOT EXISTS area_categories (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        color TEXT NOT NULL,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `;
+    await this
+      .conn`CREATE INDEX IF NOT EXISTS area_categories_user_id_idx ON area_categories (user_id)`;
+    await this.conn`
+      CREATE UNIQUE INDEX IF NOT EXISTS area_categories_user_id_name_idx
+      ON area_categories (user_id, lower(name))
+    `;
+    await this.conn`
+      ALTER TABLE areas ADD COLUMN IF NOT EXISTS category_id TEXT
+      REFERENCES area_categories (id) ON DELETE SET NULL
+    `;
+    await this.conn`CREATE INDEX IF NOT EXISTS areas_category_id_idx ON areas (category_id)`;
     await this.conn`
       CREATE TABLE IF NOT EXISTS area_events (
         id SERIAL PRIMARY KEY,

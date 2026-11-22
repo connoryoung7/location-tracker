@@ -1,6 +1,6 @@
 /**
  * OpenFreeMap vector basemaps: free, no API key, and muted enough that the
- * per-user area colours stand out. One per colour scheme, matching Pico's.
+ * area category colours stand out. One per colour scheme, matching Pico's.
  */
 export const BASEMAP_STYLES = {
   light: 'https://tiles.openfreemap.org/styles/positron',

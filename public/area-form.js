@@ -1,3 +1,35 @@
+/** The Category option that reveals a name field for a category created with the area. */
+export const NEW_CATEGORY = '__new__';
+
+/**
+ * Refreshes the New area form's Category options from the user's categories,
+ * keeping the current choice when it still exists. Runs on every areas refresh,
+ * so it never replaces a draft.
+ */
+export function updateCategorySelect(root, categories) {
+  const select = root.getElementById('draw-category');
+  const previous = select.value;
+
+  const option = (value, label) => {
+    const element = root.createElement('option');
+    element.value = value;
+    // textContent, not markup: category names are untrusted.
+    element.textContent = label;
+    return element;
+  };
+  const none = option('', 'None');
+  // form.reset() returns to None.
+  none.defaultSelected = true;
+  select.replaceChildren(
+    none,
+    ...categories.map((category) => option(category.id, category.name)),
+    option(NEW_CATEGORY, 'New category…'),
+  );
+
+  const isStillOffered = [...select.options].some((element) => element.value === previous);
+  select.value = isStillOffered ? previous : '';
+}
+
 /**
  * Local draft controller. Only a second, explicit submit sends a creation request.
  * The area is drafted for the page-wide user in `#user-select`; the review step
@@ -50,6 +82,10 @@ export function createAreaForm(
   const placement = root.getElementById('draw-placement');
   const coordinates = root.getElementById('draw-coordinates');
   const userSelect = root.getElementById('user-select');
+  const categorySelect = root.getElementById('draw-category');
+  const categoryLabelElement = root.getElementById('draw-category-label');
+  const categoryNameLabel = root.getElementById('draw-category-name-label');
+  const categoryNameInput = root.getElementById('draw-category-name');
   let isReviewing = false;
   let isSaving = false;
   let reviewed = null;
@@ -62,11 +98,35 @@ export function createAreaForm(
     settleProposal?.(isSaved);
     settleProposal = null;
   }
+  /**
+   * Shows the new category's name field only when New category… is chosen, and
+   * neither field while editing: an edit changes the name and circle only, and
+   * the area's category is changed from List areas.
+   */
+  function syncNewCategory() {
+    categoryLabelElement.hidden = Boolean(editingAreaId);
+    const isNew = !editingAreaId && categorySelect.value === NEW_CATEGORY;
+    categoryNameLabel.hidden = !isNew;
+    categoryNameInput.required = isNew;
+  }
+  /** An existing category by ID, a new one by name, or neither (always, while editing). */
+  function categoryValues() {
+    if (editingAreaId) return {};
+    const choice = categorySelect.value;
+    if (choice === NEW_CATEGORY) return { categoryName: categoryNameInput.value.trim() };
+    return choice ? { categoryId: choice } : {};
+  }
+  function categoryLabel(data) {
+    if (data.categoryName) return `${data.categoryName} (new)`;
+    if (!data.categoryId) return 'None';
+    return categorySelect.selectedOptions[0]?.textContent ?? 'None';
+  }
   const values = () => ({
     userId: userSelect.value,
     ...Object.fromEntries(
       ['name', 'lat', 'lon', 'radius'].map((key) => [key, form.elements.namedItem(key).value]),
     ),
+    ...categoryValues(),
   });
   function edit() {
     isReviewing = false;
@@ -103,12 +163,13 @@ export function createAreaForm(
     form.hidden = false;
     root.getElementById('draw-start').hidden = true;
     setError('');
+    syncNewCategory();
     edit();
   }
   function review(data) {
     reviewed = data;
     root.getElementById('draw-summary').textContent =
-      `${data.name} — User: ${data.userId}; Latitude: ${data.lat}; Longitude: ${data.lon}; Radius: ${data.radius} metres.`;
+      `${data.name} — User: ${data.userId}; ${editingAreaId ? '' : `Category: ${categoryLabel(data)}; `}Latitude: ${data.lat}; Longitude: ${data.lon}; Radius: ${data.radius} metres.`;
     isReviewing = true;
     editingChanged(false);
     fields.hidden = true;
@@ -123,6 +184,7 @@ export function createAreaForm(
     form.reset();
     editingAreaId = null;
     root.getElementById('draw-heading').textContent = COPY.create.heading;
+    syncNewCategory();
     form.hidden = true;
     root.getElementById('draw-start').hidden = false;
     setError('');
@@ -146,6 +208,10 @@ export function createAreaForm(
         ? 'Click the map to place the centre, move to size the circle, then click again.'
         : 'Enter latitude, longitude, and radius below. The map previews your changes.';
     placementChanged(placement.value);
+  });
+  categorySelect.addEventListener('change', () => {
+    syncNewCategory();
+    if (categorySelect.value === NEW_CATEGORY) categoryNameInput.focus();
   });
   root.getElementById('draw-cancel').addEventListener('click', () => {
     if (!isSaving) close();
@@ -270,6 +336,9 @@ export function createAreaForm(
       for (const [key, value] of Object.entries({ name, lat, lon, radius })) {
         form.elements.namedItem(key).value = String(value);
       }
+      // A place has no category yet; the review step's Back to editing can add one.
+      categorySelect.value = '';
+      syncNewCategory();
       placementChanged('coordinates');
       updatePreview();
       // An unnamed place needs a name first.

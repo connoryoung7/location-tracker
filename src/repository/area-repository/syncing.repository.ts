@@ -129,6 +129,18 @@ export class SyncingAreaRepository implements AreaRepository {
     return this.source.getArea(userId, areaId);
   }
 
+  /**
+   * Source only: a category never affects whether someone is inside an area,
+   * so the geofence's Redis index doesn't hold categories.
+   */
+  async setAreaCategory(
+    userId: string,
+    areaId: string,
+    categoryId: string | null,
+  ): Promise<boolean> {
+    return this.source.setAreaCategory(userId, areaId, categoryId);
+  }
+
   /** Healthy only when both stores answer -- a dead projection stops geofencing. */
   async healthCheck(): Promise<void> {
     await this.source.healthCheck();

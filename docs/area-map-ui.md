@@ -35,7 +35,12 @@ config schema up front. The map UI never uses the key itself.
 | `GET /fragments/places?userId=`     | HTMX fragment — places a user stopped at; see below        |
 | `POST /areas`                       | Create an area; the server assigns its `id`                |
 | `PUT /areas/:userId/:areaId`        | Change an area's name and circle; see below                |
+| `PATCH /areas/:userId/:areaId`      | Put an area in a category, or take it out                  |
 | `DELETE /areas/:userId/:areaId`     | Delete an area                                             |
+| `GET /categories?userId=`           | A user's categories, as JSON                               |
+| `POST /categories`                  | Create a category; see [Categories](#categories)           |
+| `PATCH /categories/:userId/:id`     | Rename and/or recolour a category                          |
+| `DELETE /categories/:userId/:id`    | Delete a category; its areas stay, uncategorised           |
 | `GET /users`                        | Known tracker IDs and area owners for the user selector    |
 | `POST /users/recompute`             | Rebuild a user's event history; see below                  |
 | `GET /_health`                      | `200` when both stores answer, `503` otherwise             |
@@ -43,8 +48,11 @@ config schema up front. The map UI never uses the key itself.
 | `/vendor/*`                         | MapLibre and HTMX, served from `node_modules`              |
 | `/static/*`                         | `public/app.js`, its modules, and `public/app.css`         |
 
-Both write routes respond with that user's re-rendered areas fragment, so the
-sidebar and the map update from a single round trip and cannot disagree.
+Both area write routes respond with that user's re-rendered areas fragment, so
+the sidebar and the map update from a single round trip and cannot disagree. The
+category routes, and `PATCH /areas`, are used from the List areas modal and answer
+with its re-rendered list instead; the page then refreshes the Areas panel. All of
+them answer with JSON instead when the request sends `Accept: application/json`.
 
 ## Selecting a user
 
@@ -153,9 +161,52 @@ away from the equator. Keeping that math server-side also puts it under `bun tes
 
 ### Colors
 
-Each user's color is derived from a hash of their user ID, so it depends only on
-their own ID and survives other users being added or removed. Their circles, and
-the swatches beside their areas in the sidebar, all use it.
+Each circle is drawn in its category's colour, and uncategorised circles in a
+neutral grey; the swatches in the Areas panel and the List areas modal use the
+same colours. A category stores a palette key (`blue`, `orange` or `aqua`), not a
+hex value: `public/app.css` gives each key a shade for the light basemap and one
+for the dark basemap, and `public/app.js` reads them when the map loads.
+
+There are only three colours on purpose. On a map any two categories can sit side
+by side, and these three, taken from the dataviz skill's reference palette, are
+the only ones that stay distinguishable from one another in both themes,
+colour-blind viewers included (checked with its validator across every pair).
+Red, green and violet are left out because entered events, exited events and
+visited places already use them. A fourth category reuses a colour, so colour is
+never the only cue: the Areas panel groups areas under named headings, and each
+area's popup names its category.
+
+## Categories
+
+A user can put each of their areas into one of their own categories, such as
+"Home", "Work" or "Gym", or leave it uncategorised. Categories belong to one
+tracked user, like areas: two users can each have a "Work" without sharing it.
+
+- **Storage.** Categories live in `area_categories` (`id`, `user_id`, `name`,
+  `color`), in the same store as areas, and `areas.category_id` points at one.
+  Names are unique per user regardless of case. Categories never reach Redis: they
+  don't affect whether someone is inside an area, so the geofence ignores them.
+- **Creating one.** Either from the New area form's Category select (**New
+  category…**), which creates it when the area is confirmed, or with **Add
+  category** in the List areas modal. A new category takes the colour the user's
+  categories use least, earliest in the palette on a tie, so their first three get
+  three different colours.
+- **Changing an area's category.** The Category column in the List areas modal
+  saves as soon as it changes. This is the only place to change it: the Edit area
+  form changes the name and circle only, so it hides the Category select.
+- **Renaming, recolouring and deleting.** In the Categories section of the List
+  areas modal. Renaming never changes the colour. Deleting asks first, saying how
+  many areas will become uncategorised, then clears it from those areas in the
+  same transaction. That's done explicitly rather than by `ON DELETE SET NULL`,
+  because SQLite here runs without `PRAGMA foreign_keys`.
+- **Same user only.** An area can only be in its own user's categories. The
+  database can't enforce that, so `POST /areas` and `PATCH /areas` check it and
+  answer `422` otherwise.
+- **The Areas panel** groups the user's areas under their categories, in name
+  order, with uncategorised areas last. A user with no categories sees the plain
+  list.
+- **Seeds and the ingestion API** don't know about categories. Re-upserting an area
+  without a category keeps the one it has, so re-running a seed never strips them.
 
 ## Drawing an area
 
@@ -171,7 +222,11 @@ so a user without any areas can create their first one. Add area is disabled
 until a user is selected. User polling preserves the selection and does not
 replace the draft form.
 
-Choose Review area to check the name, user, coordinates, and radius.
+The Category select offers None, the user's categories, and **New category…**,
+which asks for a name; see [Categories](#categories). A place proposed through
+**Save as area** starts with no category.
+
+Choose Review area to check the name, user, category, coordinates, and radius.
 The centre marker is locked during review and saving. Back to editing unlocks it and keeps the
 draft; Cancel discards it. Only Confirm and create sends
 a creation request. Confirmation is disabled during that request to prevent
@@ -194,7 +249,8 @@ as it was. Opening an area replaces any draft in progress, and switching users
 discards an edit as it does a draft.
 
 The form sends `PUT /areas/:userId/:areaId` with the new `name`, `lat`, `lon`,
-and `radius` (validated like a new area). The area keeps its ID and owner: the
+and `radius` (validated like a new area). The area keeps its ID, owner and
+category (see [Categories](#categories)): the
 owner is taken from the URL and an edit can never move an area to another user.
 An unknown or since-deleted area answers `404` and is never created, even when
 the delete races the edit (see [Staying consistent](#staying-consistent)), so the
@@ -216,12 +272,13 @@ There is **no authentication**, by design: the app is meant to run inside a Tail
 network. Binding it to a public interface would expose every user's home and work
 locations — and now also let anyone who reaches it create and delete areas.
 
-Area names and user IDs are untrusted input, so they are HTML-escaped in the
-sidebar and the `?user=` preselection, `<`-escaped inside the JSON block, and
-rendered into the user selector and map popups via `textContent` rather than
-`innerHTML`. The server assigns every area's `id`, so a client cannot
-overwrite an existing area by posting a known one; an edit must name an area
-that already exists, under the user it belongs to.
+Area names, category names and user IDs are untrusted input, so they are
+HTML-escaped in the sidebar, the List areas modal and the `?user=` preselection,
+`<`-escaped inside the JSON block, and rendered into the user selector, the
+Category select and map popups via `textContent` rather than `innerHTML`. The
+server assigns every area's and category's `id`, so a client cannot overwrite an
+existing one by posting a known ID; an edit must name an area that already
+exists, under the user it belongs to.
 
 ## Offline behavior
 
@@ -231,9 +288,10 @@ the **browser** the area circles still render, but over a blank background.
 
 ## Listing areas
 
-The Areas panel lists the selected user's areas by name; click one to zoom the
-map to it. **List areas**, in the panel header, opens a modal table of the same
-areas with their centre and radius, sorted by name. The table is fetched each
+The Areas panel lists the selected user's areas by name, grouped by category;
+click one to zoom the map to it. **List areas**, in the panel header, opens a
+modal table of the same areas with their category, centre and radius, sorted by
+name, followed by the user's categories; see [Categories](#categories). The table is fetched each
 time the modal opens. **Show** closes the modal and zooms the map to that area's
 circle. **Edit** closes the modal and opens the area for editing (see
 [Editing an area](#editing-an-area)). **Delete** asks for confirmation, then

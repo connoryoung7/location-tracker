@@ -87,6 +87,32 @@ html {
   display: none !important;
 }
 
+/* ---------- Category colours ---------- */
+
+/*
+ * The palette keys stored on each category, and the neutral one for areas
+ * without a category. Light shades suit the positron basemap, dark ones the dark
+ * basemap. Both sets come from the dataviz skill's reference palette and were
+ * checked with its validator, all pairs: these three are the only ones that stay
+ * distinguishable side by side in both themes, colour-blind viewers included.
+ * app.js reads these for the map, so the circles and the swatches always agree.
+ */
+:root {
+  --category-blue: #2a78d6;
+  --category-orange: #eb6834;
+  --category-aqua: #1baf7a;
+  --category-none: #7a7974;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --category-blue: #3987e5;
+    --category-orange: #d95926;
+    --category-aqua: #199e70;
+    --category-none: #8f8e88;
+  }
+}
+
 /* ---------- Layout ---------- */
 
 body {
@@ -268,12 +294,56 @@ body {
   color: var(--muted);
 }
 
-.legend-swatch {
+.category-swatch {
   width: 0.75rem;
   height: 0.75rem;
   border-radius: 50%;
   flex-shrink: 0;
+  background: var(--category-none);
   box-shadow: 0 0 0 2px var(--surface-raised), 0 0 0 3px var(--border);
+}
+
+.category-swatch[data-color='blue'] {
+  background: var(--category-blue);
+}
+
+.category-swatch[data-color='orange'] {
+  background: var(--category-orange);
+}
+
+.category-swatch[data-color='aqua'] {
+  background: var(--category-aqua);
+}
+
+/* One heading per category in the Areas panel; uncategorised areas come last. */
+.pico .area-group + .area-group {
+  margin-top: var(--space-2);
+}
+
+.pico .area-group-heading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-1);
+  padding: 0 var(--space-2);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--pico-color);
+}
+
+.area-group-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.area-group-count {
+  font-size: var(--text-xs);
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
 }
 
 .pico .legend-empty {
@@ -909,6 +979,94 @@ body {
 
 .pico.popup .popup-save-area:is(:hover, :focus-visible) {
   --pico-background-color: var(--place-color);
+  --pico-color: var(--surface-raised);
+}
+
+/* ---------- Categories in the areas list ---------- */
+
+.area-list-category {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.pico .area-category-select {
+  width: auto;
+  min-width: 8rem;
+  margin: 0;
+  padding: var(--space-1) var(--space-2);
+  padding-right: 2rem;
+  font-size: var(--text-sm);
+}
+
+.pico .category-manager {
+  margin-top: var(--space-4);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border);
+}
+
+.pico .category-manager h4 {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.pico .category-manager .notice {
+  margin: 0 0 var(--space-2);
+}
+
+.pico .category-list {
+  margin: 0 0 var(--space-3);
+  padding: 0;
+}
+
+.pico .category-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-2);
+  list-style: none;
+}
+
+.pico .category-edit,
+.pico .category-add {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  margin: 0;
+}
+
+.pico :is(.category-edit, .category-add) :is(input, select, button),
+.pico .category-delete {
+  width: auto;
+  margin: 0;
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--text-sm);
+}
+
+.pico :is(.category-edit, .category-add) input[type='text'] {
+  flex: 1;
+  min-width: 6rem;
+}
+
+.pico .category-edit select {
+  padding-right: 2rem;
+}
+
+/* Same treatment as the areas list's Delete. */
+.pico .category-delete {
+  --pico-background-color: transparent;
+  --pico-border-color: var(--tone-error);
+  --pico-color: var(--tone-error);
+}
+
+.pico .category-delete:is(:hover, :focus-visible) {
+  --pico-background-color: var(--tone-error);
   --pico-color: var(--surface-raised);
 }
 

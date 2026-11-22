@@ -102,4 +102,55 @@ describe('SqliteAreaRepository', () => {
 
     expect(areas).toHaveLength(1);
   });
+
+  describe('categories', () => {
+    beforeEach(() => {
+      db.run(`INSERT INTO area_categories (id, user_id, name, color) VALUES
+        ('gym', 'AB', 'Gym', 'blue'), ('work', 'AB', 'Work', 'orange')`);
+    });
+
+    test('an area reads back with its category, and without one when uncategorised', async () => {
+      await repo.addArea(buildArea({ id: 'a1', categoryId: 'gym' }));
+      await repo.addArea(buildArea({ id: 'a2', name: 'Park' }));
+
+      expect((await repo.getArea('AB', 'a1'))!.categoryId).toBe('gym');
+      // Absent, not null, so it matches areas from the Redis projection.
+      expect(await repo.getArea('AB', 'a2')).not.toHaveProperty('categoryId');
+    });
+
+    test('re-upserting an area without a category keeps the one it has', async () => {
+      await repo.addArea(buildArea({ id: 'a1', categoryId: 'gym' }));
+
+      // As re-running a seed or the cutover import does.
+      await repo.addArea(buildArea({ id: 'a1', radius: 300 }));
+
+      const area = (await repo.getArea('AB', 'a1'))!;
+      expect(area.radius).toBe(300);
+      expect(area.categoryId).toBe('gym');
+    });
+
+    test("editing an area's name and circle keeps its category", async () => {
+      await repo.addArea(buildArea({ id: 'a1', categoryId: 'gym' }));
+
+      // The edit form sends no category, as PUT /areas/:userId/:areaId does.
+      expect(await repo.updateArea(buildArea({ id: 'a1', name: 'Moved', radius: 400 }))).toBe(true);
+
+      expect((await repo.getArea('AB', 'a1'))!.categoryId).toBe('gym');
+    });
+
+    test('setAreaCategory changes and clears the category, for the owner only', async () => {
+      await repo.addArea(buildArea({ id: 'a1' }));
+
+      expect(await repo.setAreaCategory('AB', 'a1', 'work')).toBe(true);
+      expect((await repo.getArea('AB', 'a1'))!.categoryId).toBe('work');
+
+      expect(await repo.setAreaCategory('CD', 'a1', 'gym')).toBe(false);
+      expect((await repo.getArea('AB', 'a1'))!.categoryId).toBe('work');
+
+      expect(await repo.setAreaCategory('AB', 'a1', null)).toBe(true);
+      expect(await repo.getArea('AB', 'a1')).not.toHaveProperty('categoryId');
+
+      expect(await repo.setAreaCategory('AB', 'missing', 'gym')).toBe(false);
+    });
+  });
 });
