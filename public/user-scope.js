@@ -141,12 +141,35 @@ export function syncUserActions(root, userId) {
   root.getElementById('draw-start').disabled = !userId;
 }
 
+/** The data blocks fragments carry for the map, each naming the user it is for. */
+const DATA_BLOCK =
+  /<script type="application\/json" id="(?:areas|events|places)-data">([\s\S]*?)<\/script>/;
+
 /**
- * Discards any htmx response whose request was sent while a different user was
- * selected, before it replaces anything. That covers every request on the page,
- * whatever sent it: panel loads and polls, deletes from a popup or the areas
- * list, Recompute events, and Find places. Without it, a slow response for the
- * previous user could land after a switch and show their data under the new one.
+ * The user a fragment says it is for, read from its data block. `''` for a
+ * fragment shown before anyone is selected; `undefined` when it has no data
+ * block (an error notice, the areas list, a recompute result).
+ */
+export function responseUserId(html) {
+  const match = DATA_BLOCK.exec(html ?? '');
+  if (!match) return undefined;
+  try {
+    return JSON.parse(match[1])?.userId ?? '';
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Discards any htmx response for a user other than the one selected now, before
+ * it replaces anything. A response is rejected if its request was sent while a
+ * different user was selected, or if its own data names a different user.
+ *
+ * The first catches every request on the page, whatever sent it: panel loads and
+ * polls, deletes, Recompute events, and Find places, all of which could
+ * otherwise land after a switch and show the previous user's data under the new
+ * one. The second catches a request sent after the switch from a control still
+ * showing the previous user's data, e.g. a Delete for one of their areas.
  */
 export function guardStaleResponses(root) {
   const select = selectOf(root);
@@ -157,7 +180,10 @@ export function guardStaleResponses(root) {
   });
   root.body.addEventListener('htmx:beforeSwap', (event) => {
     const { xhr } = event.detail;
-    if (requestedFor.has(xhr) && requestedFor.get(xhr) !== select.value) {
+    const isSentForAnother = requestedFor.has(xhr) && requestedFor.get(xhr) !== select.value;
+    const respondsFor = responseUserId(xhr.responseText);
+    const isAboutAnother = respondsFor !== undefined && respondsFor !== select.value;
+    if (isSentForAnother || isAboutAnother) {
       event.detail.shouldSwap = false;
     }
   });
