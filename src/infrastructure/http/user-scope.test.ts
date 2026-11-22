@@ -3,6 +3,7 @@ import { Window, type HTMLButtonElement, type HTMLSelectElement } from 'happy-do
 import {
   guardStaleResponses,
   rememberUserSelection,
+  responseUserId,
   restoreUserSelection,
   syncUserActions,
   updateUserSelect,
@@ -390,19 +391,34 @@ describe('guardStaleResponses', () => {
     guardStaleResponses(document);
     const panel = document.getElementById('areas')!;
     const send = () => {
-      const xhr = {};
+      const xhr: { responseText?: string } = {};
       panel.dispatchEvent(
         new window.CustomEvent('htmx:beforeRequest', { bubbles: true, detail: { xhr } }),
       );
       return xhr;
     };
-    const swapAllowed = (xhr: object) => {
+    /** `responseText` is what the server answered; omitted, it has no data block. */
+    const swapAllowed = (xhr: { responseText?: string }, responseText?: string) => {
+      if (responseText !== undefined) xhr.responseText = responseText;
       const detail = { xhr, shouldSwap: true };
       panel.dispatchEvent(new window.CustomEvent('htmx:beforeSwap', { bubbles: true, detail }));
       return detail.shouldSwap;
     };
     return { ...context, send, swapAllowed };
   }
+
+  const areasFragmentFor = (userId: string) =>
+    `<ul class="area-names"></ul><script type="application/json" id="areas-data">${JSON.stringify({ userId })}</script>`;
+
+  test('drops a response whose own data names another user, whatever sent it', () => {
+    const { select, send, swapAllowed } = requestLifecycle();
+    select.value = 'CD';
+
+    // E.g. a Delete still showing for one of AB's areas, clicked after picking CD:
+    // the request is sent with CD selected, but the answer is AB's areas.
+    expect(swapAllowed(send(), areasFragmentFor('AB'))).toBe(false);
+    expect(swapAllowed(send(), areasFragmentFor('CD'))).toBe(true);
+  });
 
   test('swaps in a response for the user it was requested for', () => {
     const { send, swapAllowed } = requestLifecycle();
@@ -426,5 +442,31 @@ describe('guardStaleResponses', () => {
     const { swapAllowed } = requestLifecycle();
 
     expect(swapAllowed({})).toBe(true);
+  });
+});
+
+describe('responseUserId', () => {
+  const block = (id: string, json: string) =>
+    `<p>…</p><script type="application/json" id="${id}">${json}</script>`;
+
+  test("reads the user from any panel's data block", () => {
+    expect(responseUserId(block('areas-data', '{"userId":"AB","bounds":[1,2,3,4]}'))).toBe('AB');
+    expect(responseUserId(block('events-data', '{"userId":"CD"}'))).toBe('CD');
+    expect(responseUserId(block('places-data', '{"userId":"EF"}'))).toBe('EF');
+  });
+
+  test('a prompt shown before anyone is selected is for no user', () => {
+    expect(responseUserId(block('events-data', 'null'))).toBe('');
+    expect(responseUserId(block('areas-data', '{"userId":""}'))).toBe('');
+  });
+
+  test('reads a user whose ID was <-escaped for the script block', () => {
+    expect(responseUserId(block('areas-data', '{"userId":"\\u003c/script>"}'))).toBe('</script>');
+  });
+
+  test('a fragment without a data block, or with a broken one, names nobody', () => {
+    expect(responseUserId('<p class="notice">Could not reach the area store.</p>')).toBeUndefined();
+    expect(responseUserId(block('areas-data', '{not json'))).toBeUndefined();
+    expect(responseUserId(undefined)).toBeUndefined();
   });
 });

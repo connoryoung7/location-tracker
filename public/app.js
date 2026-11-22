@@ -59,10 +59,14 @@ let isStyleLoaded = false;
 /** Latest events view, held until the style finishes loading. */
 let pendingEventsView = null;
 /**
- * The user the map was last framed for. Each user is framed once, by whichever
- * of their areas or events arrives first, so polls never move the view.
+ * The user the map has been framed for since they were last selected. Each
+ * selection is framed once, by whichever of the user's areas or events arrives
+ * first, so polls never move the view. Reset on every switch, so returning to a
+ * user frames them again even if the map was moved in between.
  */
 let framedUserId = null;
+/** Whether the map has been framed at all yet; the first frame on the page jumps. */
+let hasFramed = false;
 /** The open popup, closed when the user changes so it can't act on the previous user. */
 let activePopup = null;
 
@@ -78,7 +82,8 @@ function frameUserOnce(userId, bounds) {
   }
 
   // Jump straight there on page load; animate only when switching users.
-  const isFirstFrame = framedUserId === null;
+  const isFirstFrame = !hasFramed;
+  hasFramed = true;
   framedUserId = userId;
   map.fitBounds(bounds, { padding: 60, maxZoom: 15, ...(isFirstFrame ? { duration: 0 } : {}) });
 }
@@ -165,7 +170,9 @@ map.on('click', 'events-points', (event) => {
   }
 
   const feature = event.features?.[0];
-  if (!feature) {
+  // setData applies asynchronously, so the previous user's points stay drawn,
+  // and clickable, for a moment after a switch.
+  if (!feature || feature.properties.userId !== userSelect.value) {
     return;
   }
 
@@ -194,7 +201,18 @@ function renderEvents(view) {
     return;
   }
 
-  map.getSource(EVENTS_SOURCE_ID).setData(view ? view.featureCollection : EMPTY_COLLECTION);
+  // Each point carries its user, so a click on one still drawn after a switch
+  // can be told apart. Area circles already carry theirs.
+  const points = view
+    ? {
+        ...view.featureCollection,
+        features: view.featureCollection.features.map((feature) => ({
+          ...feature,
+          properties: { ...feature.properties, userId: view.userId },
+        })),
+      }
+    : EMPTY_COLLECTION;
+  map.getSource(EVENTS_SOURCE_ID).setData(points);
   frameUserOnce(view?.userId, view?.bounds);
 }
 
@@ -230,7 +248,20 @@ document.getElementById('events').addEventListener('click', (event) => {
 
 const areaListDialog = document.getElementById('area-list-dialog');
 
+/**
+ * Empties the areas list. Its rows carry Delete buttons for whoever they were
+ * loaded for, so a list from before a switch must never be shown again, not
+ * even while the new one loads.
+ */
+function resetAreaList() {
+  const loading = document.createElement('p');
+  loading.className = 'legend-empty';
+  loading.textContent = 'Loading…';
+  document.getElementById('area-list').replaceChildren(loading);
+}
+
 document.getElementById('area-list-open').addEventListener('click', () => {
+  resetAreaList();
   // textContent: user IDs are untrusted.
   document.getElementById('area-list-title').textContent = userSelect.value
     ? `Areas for ${userSelect.value}`
@@ -294,7 +325,9 @@ map.on('click', 'areas-fill', (event) => {
   }
 
   const feature = event.features?.[0];
-  if (!feature) {
+  // The previous user's circles stay drawn, and clickable, for a moment after a
+  // switch: setData applies asynchronously. Their Delete must not be offered.
+  if (!feature || feature.properties.userId !== userSelect.value) {
     return;
   }
 
@@ -529,6 +562,8 @@ watchUserScope(document, {
     // Nothing of the previous user's may stay on the map while the new user's
     // panels load. Their fragments reload themselves via `change from:#user-scope`.
     activePopup?.remove();
+    framedUserId = null;
+    resetAreaList();
     pendingView = null;
     pendingEventsView = null;
     if (isStyleLoaded) {
