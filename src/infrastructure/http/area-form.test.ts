@@ -10,6 +10,7 @@ import { createAreaForm } from '@/../public/area-form.js';
 import { syncUserActions, updateUserSelect } from '@/../public/user-scope.js';
 import { createAppServer } from '@/infrastructure/http/app-server.ts';
 import {
+  mockAreaCategoryRepository,
   mockAreaEventRepository,
   mockAreaRepository,
   mockLogger,
@@ -22,6 +23,7 @@ let page: string;
 beforeAll(async () => {
   const app = createAppServer({
     areaRepo: mockAreaRepository(),
+    areaCategories: mockAreaCategoryRepository(),
     areaEvents: mockAreaEventRepository(),
     users: { listUserIds: async () => [] },
     logger: mockLogger(),

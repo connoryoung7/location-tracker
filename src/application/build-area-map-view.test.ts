@@ -1,6 +1,6 @@
 import { test, expect, describe } from 'bun:test';
 import { buildAreaMapView, type AreaMapView } from '@/application/build-area-map-view.ts';
-import { buildArea } from '@/test/factories.ts';
+import { buildArea, buildAreaCategory } from '@/test/factories.ts';
 
 const EARTH_RADIUS_METERS = 6_371_008.8;
 
@@ -52,63 +52,48 @@ describe('buildAreaMapView', () => {
     expect(spanAt(60)).toBeGreaterThan(spanAt(0) * 1.5);
   });
 
-  const colorFor = (view: AreaMapView, userId: string) =>
-    view.featureCollection.features.find((feature) => feature.properties.userId === userId)!
-      .properties.color;
-
-  // Colors are hashed per user ID, so distinctness is likely but not guaranteed
-  // -- two IDs can collide.
-  test('colors do not depend on the order areas arrive in', () => {
-    const areas = [buildArea({ id: 'a1', userId: 'AB' }), buildArea({ id: 'b1', userId: 'CD' })];
-
-    const forward = buildAreaMapView(areas);
-    const reversed = buildAreaMapView([...areas].reverse());
-
-    expect(colorFor(forward, 'AB')).not.toBe(colorFor(forward, 'CD'));
-    expect(colorFor(reversed, 'AB')).toBe(colorFor(forward, 'AB'));
-    expect(colorFor(reversed, 'CD')).toBe(colorFor(forward, 'CD'));
-  });
-
-  test('adding a user that sorts first does not recolor the existing users', () => {
-    const existing = [buildArea({ id: 'a1', userId: 'AB' }), buildArea({ id: 'b1', userId: 'CD' })];
-
-    const before = buildAreaMapView(existing);
-    // 'AA' sorts ahead of both, which under position-based assignment would
-    // shift every later user's color on the next poll.
-    const after = buildAreaMapView([...existing, buildArea({ id: 'z1', userId: 'AA' })]);
-
-    expect(colorFor(after, 'AB')).toBe(colorFor(before, 'AB'));
-    expect(colorFor(after, 'CD')).toBe(colorFor(before, 'CD'));
-  });
-
-  test('a user keeps its color when other users disappear entirely', () => {
-    const withPeers = buildAreaMapView([
-      buildArea({ id: 'a1', userId: 'AB' }),
-      buildArea({ id: 'b1', userId: 'CD' }),
-      buildArea({ id: 'c1', userId: 'EF' }),
-    ]);
-    const alone = buildAreaMapView([buildArea({ id: 'b1', userId: 'CD' })]);
-
-    expect(colorFor(alone, 'CD')).toBe(colorFor(withPeers, 'CD'));
-  });
-
-  test('colors are valid CSS/MapLibre hsl values', () => {
-    const view = buildAreaMapView([buildArea({ userId: 'AB' })]);
-
-    expect(colorFor(view, 'AB')).toMatch(
-      /^hsl\((\d|[1-9]\d|[12]\d\d|3[0-5]\d), 65%, (36|46|56)%\)$/,
+  test("each circle takes its category's colour key and name", () => {
+    const gym = buildAreaCategory({ id: 'gym', name: 'Gym', color: 'orange' });
+    const view = buildAreaMapView(
+      [buildArea({ id: 'a1', name: 'Climbing wall', categoryId: 'gym' })],
+      [gym],
     );
+
+    expect(view.featureCollection.features[0]!.properties).toMatchObject({
+      areaId: 'a1',
+      userId: 'AB',
+      name: 'Climbing wall',
+      colorKey: 'orange',
+      categoryName: 'Gym',
+    });
   });
 
-  test('features carry their display metadata, sharing one color per user', () => {
+  test('uncategorised circles are neutral, including ones whose category is unknown', () => {
     const view = buildAreaMapView([
-      buildArea({ id: 'a1', userId: 'AB', name: 'Home' }),
-      buildArea({ id: 'a2', userId: 'AB', name: 'Gym' }),
+      buildArea({ id: 'a1' }),
+      // E.g. a category deleted between reading the areas and the categories.
+      buildArea({ id: 'a2', categoryId: 'deleted' }),
     ]);
-    const [home, gym] = view.featureCollection.features;
 
-    expect(home!.properties).toMatchObject({ areaId: 'a1', userId: 'AB', name: 'Home' });
-    expect(gym!.properties.color).toBe(home!.properties.color);
+    for (const feature of view.featureCollection.features) {
+      expect(feature.properties).toMatchObject({ colorKey: 'none', categoryName: '' });
+    }
+  });
+
+  test('recolouring a category recolours every circle in it', () => {
+    const areas = [
+      buildArea({ id: 'a1', categoryId: 'gym' }),
+      buildArea({ id: 'a2', categoryId: 'gym' }),
+    ];
+    const keys = (view: AreaMapView) =>
+      view.featureCollection.features.map((feature) => feature.properties.colorKey);
+
+    expect(
+      keys(buildAreaMapView(areas, [buildAreaCategory({ id: 'gym', color: 'blue' })])),
+    ).toEqual(['blue', 'blue']);
+    expect(
+      keys(buildAreaMapView(areas, [buildAreaCategory({ id: 'gym', color: 'aqua' })])),
+    ).toEqual(['aqua', 'aqua']);
   });
 
   test('features carry their centre and radius, so the map popup can open one for editing', () => {

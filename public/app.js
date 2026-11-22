@@ -2,7 +2,7 @@ import { basemapStyleFor, followColorScheme } from '/static/basemap.js';
 import { createConfirmDialog } from '/static/confirm-dialog.js';
 import { createDraftMarker } from '/static/draft-marker.js';
 import { setNotice, toneFromResponses } from '/static/notices.js';
-import { createAreaForm } from '/static/area-form.js';
+import { createAreaForm, updateCategorySelect } from '/static/area-form.js';
 import {
   guardStaleResponses,
   rememberUserSelection,
@@ -22,6 +22,29 @@ import {
 } from '/vendor/maplibre/maplibre-gl.mjs';
 
 const SOURCE_ID = 'areas';
+
+/**
+ * Category palette keys, in palette order. Must match AREA_CATEGORY_COLORS in
+ * `@/domain/types.ts`; each key's light and dark shade is a `--category-<key>`
+ * custom property in app.css, so the map and the sidebar swatches agree.
+ */
+const CATEGORY_COLOR_KEYS = ['blue', 'orange', 'aqua'];
+
+/**
+ * A MapLibre expression colouring each circle by its `colorKey`, uncategorised
+ * ones neutral, in the current colour scheme's shades. Read from the stylesheet,
+ * so it is re-read whenever the scheme (and with it the basemap) changes.
+ */
+function categoryColorExpression() {
+  const style = getComputedStyle(document.documentElement);
+  const shade = (key) => style.getPropertyValue(`--category-${key}`).trim();
+  return [
+    'match',
+    ['get', 'colorKey'],
+    ...CATEGORY_COLOR_KEYS.flatMap((key) => [key, shade(key)]),
+    shade('none'),
+  ];
+}
 const DRAW_SOURCE_ID = 'draw-preview';
 const EVENTS_SOURCE_ID = 'events';
 const EVENT_COLORS = { entered: '#16a34a', exited: '#dc2626' };
@@ -47,6 +70,16 @@ const map = new MapLibreMap({
 });
 // Before any overlay is added, so it can tell the basemap's sources from the page's.
 followColorScheme(map, colorScheme);
+// Repaint the circles in the new scheme's shades. The basemap switch carries the
+// area layers across as they are when the new style lands, so this is kept.
+colorScheme.addEventListener('change', () => {
+  for (const [layerId, property] of [
+    ['areas-fill', 'fill-color'],
+    ['areas-outline', 'line-color'],
+  ]) {
+    if (map.getLayer(layerId)) map.setPaintProperty(layerId, property, categoryColorExpression());
+  }
+});
 map.addControl(new NavigationControl(), 'top-right');
 map.addControl(new ScaleControl());
 
@@ -95,13 +128,13 @@ map.on('load', () => {
     id: 'areas-fill',
     type: 'fill',
     source: SOURCE_ID,
-    paint: { 'fill-color': ['get', 'color'], 'fill-opacity': 0.2 },
+    paint: { 'fill-color': categoryColorExpression(), 'fill-opacity': 0.2 },
   });
   map.addLayer({
     id: 'areas-outline',
     type: 'line',
     source: SOURCE_ID,
-    paint: { 'line-color': ['get', 'color'], 'line-width': 2 },
+    paint: { 'line-color': categoryColorExpression(), 'line-width': 2 },
   });
 
   map.addSource(DRAW_SOURCE_ID, { type: 'geojson', data: EMPTY_COLLECTION });
@@ -334,9 +367,15 @@ document.getElementById('areas').addEventListener('click', (event) => {
 });
 
 // A delete from the list refreshes #areas (and so the map); reload the list too.
+// Category changes in the list answer with the list, so refresh #areas instead:
+// its grouping, its circles' colours, and the New area form's categories.
 document.body.addEventListener('htmx:afterRequest', (event) => {
-  if (event.detail.elt.classList?.contains('area-list-delete') && event.detail.successful) {
+  const { elt, successful } = event.detail;
+  if (!successful) return;
+  if (elt.classList?.contains('area-list-delete')) {
     window.htmx?.trigger('#area-list', 'refresh');
+  } else if (elt.closest?.('#area-list')) {
+    window.htmx?.trigger('#areas', 'refresh');
   }
 });
 
@@ -367,7 +406,7 @@ map.on('click', 'areas-fill', (event) => {
     return;
   }
 
-  const { name, userId, lat, lon, radius, areaId } = feature.properties;
+  const { name, userId, lat, lon, radius, areaId, categoryName } = feature.properties;
 
   // Built as DOM rather than an HTML string: area names are untrusted, and
   // textContent cannot be escaped wrong.
@@ -376,7 +415,8 @@ map.on('click', 'areas-fill', (event) => {
   container.className = 'pico popup';
   const label = document.createElement('p');
   label.className = 'popup-label';
-  label.textContent = `${name} (${Math.round(radius)}m)`;
+  const category = categoryName ? ` · ${categoryName}` : '';
+  label.textContent = `${name} (${Math.round(radius)}m)${category}`;
 
   const remove = document.createElement('button');
   remove.type = 'button';
@@ -437,6 +477,7 @@ function readSwappedView() {
 
   const view = JSON.parse(dataElement.textContent);
   pendingView = view;
+  updateCategorySelect(document, view.categories ?? []);
   if (isStyleLoaded) {
     render(view);
   }

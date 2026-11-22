@@ -296,6 +296,32 @@ export type Area = {
   lon: number;
   /** Radius in meters. */
   radius: number;
+  /** The user's category this area is in; absent when it is uncategorised. */
+  categoryId?: string;
+};
+
+/**
+ * The palette a category's colour comes from, in the order new categories take
+ * them. Stored as these keys rather than hex values, so the page can use a
+ * different shade of each for the light and dark basemaps.
+ *
+ * Only three: on a map any two categories can sit side by side, and these are
+ * the only three that stay distinguishable from one another in both themes,
+ * colour-blind viewers included (checked with the dataviz skill's validator,
+ * all pairs). Green, red and violet are already taken by entered events,
+ * exited events and visited places. A fourth category repeats a colour; the
+ * sidebar and popups name categories, so colour is never the only cue.
+ */
+export const AREA_CATEGORY_COLORS = ['blue', 'orange', 'aqua'] as const;
+
+export type AreaCategoryColor = (typeof AREA_CATEGORY_COLORS)[number];
+
+/** One of a user's categories for their areas, such as "Home" or "Gym". */
+export type AreaCategory = {
+  id: string;
+  userId: string;
+  name: string;
+  color: AreaCategoryColor;
 };
 
 /** State handed from a committed replay to the next live location. */

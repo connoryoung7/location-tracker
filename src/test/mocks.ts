@@ -1,5 +1,6 @@
 import { mock } from 'bun:test';
 import type {
+  AreaCategoryRepository,
   AreaEventRepository,
   AreaRepository,
   EventPublisher,
@@ -36,7 +37,21 @@ export function mockAreaRepository(): {
     listAreas: mock(() => Promise.resolve([])),
     listAllAreas: mock(() => Promise.resolve([])),
     getArea: mock(() => Promise.resolve(undefined)),
+    setAreaCategory: mock(() => Promise.resolve(true)),
     healthCheck: mock(() => Promise.resolve()),
+  };
+}
+
+export function mockAreaCategoryRepository(): {
+  [K in keyof AreaCategoryRepository]: ReturnType<typeof mock>;
+} {
+  return {
+    listCategories: mock(() => Promise.resolve([])),
+    getCategory: mock(() => Promise.resolve(undefined)),
+    findCategoryByName: mock(() => Promise.resolve(undefined)),
+    addCategory: mock(() => Promise.resolve('added')),
+    updateCategory: mock(() => Promise.resolve('updated')),
+    removeCategory: mock(() => Promise.resolve(true)),
   };
 }
 

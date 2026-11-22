@@ -3,6 +3,7 @@ import { Window, type HTMLDialogElement, type HTMLElement } from 'happy-dom';
 import { createConfirmDialog } from '@/../public/confirm-dialog.js';
 import { createAppServer } from '@/infrastructure/http/app-server.ts';
 import {
+  mockAreaCategoryRepository,
   mockAreaEventRepository,
   mockAreaRepository,
   mockLogger,
@@ -18,6 +19,7 @@ beforeAll(async () => {
   const app = createAppServer({
     areaRepo: mockAreaRepository(),
     areaEvents: mockAreaEventRepository(),
+    areaCategories: mockAreaCategoryRepository(),
     users: { listUserIds: async () => [] },
     logger: mockLogger(),
     metrics: mockMetricsCollector(),

@@ -9,6 +9,7 @@ type AreaRow = {
   lat: number;
   lon: number;
   radius: number;
+  category_id: string | null;
 };
 
 function toArea(row: AreaRow): Area {
@@ -19,10 +20,11 @@ function toArea(row: AreaRow): Area {
     lat: row.lat,
     lon: row.lon,
     radius: row.radius,
+    ...(row.category_id ? { categoryId: row.category_id } : {}),
   };
 }
 
-const SELECT_COLUMNS = 'id, user_id, name, lat, lon, radius';
+const SELECT_COLUMNS = 'id, user_id, name, lat, lon, radius, category_id';
 
 /** The record of truth for areas when running without Postgres. */
 export class SqliteAreaRepository implements AreaRepository {
@@ -32,19 +34,23 @@ export class SqliteAreaRepository implements AreaRepository {
     this.db = db;
   }
 
-  /** Upserts on `id`, matching {@link PostgresAreaRepository.addArea}. */
+  /**
+   * Upserts on `id`, matching {@link PostgresAreaRepository.addArea}. An area
+   * re-upserted without a category keeps the one it has.
+   */
   addArea(area: Area): void {
     this.db.run(
-      `INSERT INTO areas (id, user_id, name, lat, lon, radius)
-       VALUES (?, ?, ?, ?, ?, ?)
+      `INSERT INTO areas (id, user_id, name, lat, lon, radius, category_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT (id) DO UPDATE SET
          user_id = excluded.user_id,
          name = excluded.name,
          lat = excluded.lat,
          lon = excluded.lon,
          radius = excluded.radius,
+         category_id = COALESCE(excluded.category_id, areas.category_id),
          updated_at = datetime('now')`,
-      [area.id, area.userId, area.name, area.lat, area.lon, area.radius],
+      [area.id, area.userId, area.name, area.lat, area.lon, area.radius, area.categoryId ?? null],
     );
   }
 
@@ -85,6 +91,19 @@ export class SqliteAreaRepository implements AreaRepository {
       .get(areaId, userId) as AreaRow | null;
 
     return row ? toArea(row) : undefined;
+  }
+
+  async setAreaCategory(
+    userId: string,
+    areaId: string,
+    categoryId: string | null,
+  ): Promise<boolean> {
+    const { changes } = this.db.run(
+      `UPDATE areas SET category_id = ?, updated_at = datetime('now')
+       WHERE id = ? AND user_id = ?`,
+      [categoryId, areaId, userId],
+    );
+    return changes > 0;
   }
 
   async healthCheck(): Promise<void> {

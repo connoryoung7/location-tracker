@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { AREA_CATEGORY_COLORS } from '@/domain/types.ts';
 
 export const LocationPayloadSchema = z.object({
   _type: z.literal('location'),
@@ -197,3 +198,49 @@ export const CreateAreaSchema = z.object({
 
 /** What an area edit may change. The owner and ID come from the URL and never change. */
 export const UpdateAreaSchema = CreateAreaSchema.omit({ userId: true });
+
+/** A category name: trimmed, and unique per user regardless of case. */
+const AreaCategoryNameSchema = z.string().trim().min(1).max(100);
+
+const AreaCategoryColorSchema = z.enum(AREA_CATEGORY_COLORS);
+
+/** IDs are server-generated UUIDs; this only bounds what a client can send. */
+const AreaCategoryIdSchema = z.string().min(1).max(64);
+
+/**
+ * An area drawn in the map UI, optionally in one of the user's categories:
+ * either an existing one by `categoryId`, or one named by `categoryName`,
+ * which is reused if the user already has it (ignoring case) and created if not.
+ * The ingestion API keeps using {@link CreateAreaSchema}, which has no category.
+ */
+export const CreateCategorizedAreaSchema = CreateAreaSchema.extend({
+  categoryId: AreaCategoryIdSchema.optional(),
+  categoryName: AreaCategoryNameSchema.optional(),
+}).refine((area) => !(area.categoryId && area.categoryName), {
+  message: 'Choose an existing category or name a new one, not both',
+  path: ['categoryName'],
+});
+
+/** A new category. Without a colour, the server picks the least-used one. */
+export const CreateAreaCategorySchema = z.object({
+  userId: z.string().min(1).max(64),
+  name: AreaCategoryNameSchema,
+  color: AreaCategoryColorSchema.optional(),
+});
+
+/** A rename, a recolour, or both. */
+export const UpdateAreaCategorySchema = z
+  .object({
+    name: AreaCategoryNameSchema.optional(),
+    color: AreaCategoryColorSchema.optional(),
+  })
+  .refine((changes) => changes.name !== undefined || changes.color !== undefined, {
+    message: 'Change the name or the colour',
+  });
+
+/** Puts an area in a category, or takes it out with an empty or null ID. */
+export const SetAreaCategorySchema = z.object({
+  categoryId: z
+    .union([AreaCategoryIdSchema, z.literal(''), z.null()])
+    .transform((categoryId) => categoryId || null),
+});

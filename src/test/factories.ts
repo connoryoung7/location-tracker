@@ -1,6 +1,7 @@
 import type {
   Address,
   Area,
+  AreaCategory,
   GeocodingResult,
   LocationPayload,
   TransitionPayload,
@@ -68,6 +69,16 @@ export function buildArea(overrides?: Partial<Area>): Area {
     lat: 42.3601,
     lon: -71.0589,
     radius: 100,
+    ...overrides,
+  };
+}
+
+export function buildAreaCategory(overrides?: Partial<AreaCategory>): AreaCategory {
+  return {
+    id: 'category-1',
+    userId: 'AB',
+    name: 'Gym',
+    color: 'blue',
     ...overrides,
   };
 }

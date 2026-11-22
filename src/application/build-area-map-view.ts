@@ -1,55 +1,16 @@
-import type { Area } from '@/domain/types.ts';
+import type { Area, AreaCategory, AreaCategoryColor } from '@/domain/types.ts';
+
+/**
+ * A circle's colour: its category's palette key, or `none` when it is
+ * uncategorised. The page turns keys into the light or dark shade.
+ */
+export type AreaColorKey = AreaCategoryColor | 'none';
 
 /** Vertices used to approximate each circular area as a polygon ring. */
 const CIRCLE_VERTICES = 64;
 
 /** Mean Earth radius in meters, matching the sphere Redis GEO commands assume. */
 const EARTH_RADIUS_METERS = 6_371_008.8;
-
-/** Saturation held fixed so every generated color stays legible on the basemap. */
-const USER_COLOR_SATURATION = 65;
-
-/**
- * Hue alone leaves too much to chance: with a handful of users, two hashes
- * landing within a few degrees of each other is common enough to see in
- * practice, and near-identical hues are indistinguishable on the map. Varying
- * lightness as well gives those pairs a second axis to separate on.
- */
-const USER_COLOR_LIGHTNESSES = [36, 46, 56] as const;
-
-/** FNV-1a offset basis and prime. */
-const FNV_OFFSET_BASIS = 2166136261;
-const FNV_PRIME = 16777619;
-
-function fnv1a(value: string): number {
-  let hash = FNV_OFFSET_BASIS;
-  for (let index = 0; index < value.length; index += 1) {
-    hash ^= value.charCodeAt(index);
-    hash = Math.imul(hash, FNV_PRIME);
-  }
-
-  return hash >>> 0;
-}
-
-/**
- * Derives a user's color from their ID alone.
- *
- * Deriving it from the user's position in the sorted list instead would mean a
- * newly added user that sorts earlier shifts the color of everyone after them
- * on the next poll. Hashing is stateless, so a user's color survives other
- * users appearing and disappearing.
- *
- * Distinct IDs can still collide. The page shows one user at a time, so a
- * collision never puts two indistinguishable users side by side.
- */
-export function colorForUserId(userId: string): string {
-  const hue = fnv1a(userId) % 360;
-  // Salted separately so lightness does not simply track the hue.
-  const lightness =
-    USER_COLOR_LIGHTNESSES[fnv1a(`${userId}:lightness`) % USER_COLOR_LIGHTNESSES.length]!;
-
-  return `hsl(${hue}, ${USER_COLOR_SATURATION}%, ${lightness}%)`;
-}
 
 /** A `[lon, lat]` pair, in the order GeoJSON requires. */
 type Position = [number, number];
@@ -66,7 +27,12 @@ export type AreaFeature = {
     lat: number;
     lon: number;
     radius: number;
-    color: string;
+    colorKey: AreaColorKey;
+    /**
+     * Shown in the area's popup; empty when it is uncategorised. Not null, so
+     * the value the popup gets back from MapLibre is never in doubt.
+     */
+    categoryName: string;
   };
 };
 
@@ -124,21 +90,16 @@ function circleToRing(lat: number, lon: number, radius: number): Position[] {
 
 /**
  * Turns a flat list of areas into everything the map UI needs to render them:
- * polygon geometry, a stable per-user color, and a bounding box.
- *
- * Each user's color is derived from their ID alone, so it survives both
- * reordering and the arrival of new users between polls.
+ * polygon geometry, the colour of each area's category, and a bounding box.
+ * `categories` are the areas' owner's; an area whose category isn't among them
+ * is drawn as uncategorised.
  */
-export function buildAreaMapView(areas: Area[]): AreaMapView {
-  const colorByUserId = new Map(
-    [...new Set(areas.map((area) => area.userId))].map((userId) => [
-      userId,
-      colorForUserId(userId),
-    ]),
-  );
+export function buildAreaMapView(areas: Area[], categories: AreaCategory[] = []): AreaMapView {
+  const categoryById = new Map(categories.map((category) => [category.id, category]));
 
   const features = areas.map((area): AreaFeature => {
     const ring = circleToRing(area.lat, area.lon, area.radius);
+    const category = area.categoryId ? categoryById.get(area.categoryId) : undefined;
     return {
       type: 'Feature',
       geometry: { type: 'Polygon', coordinates: [ring] },
@@ -149,7 +110,8 @@ export function buildAreaMapView(areas: Area[]): AreaMapView {
         lat: area.lat,
         lon: area.lon,
         radius: area.radius,
-        color: colorByUserId.get(area.userId)!,
+        colorKey: category?.color ?? 'none',
+        categoryName: category?.name ?? '',
       },
     };
   });

@@ -2,7 +2,11 @@ import { test, expect, describe, beforeAll, afterAll, beforeEach, mock } from 'b
 import { createAppServer, type AppDeps } from '@/infrastructure/http/app-server.ts';
 import { ConsoleLogger } from '@/infrastructure/logging/console.logger.ts';
 import { PrometheusMetricsCollector } from '@/infrastructure/metrics/prometheus.metrics.ts';
-import { mockAreaEventRepository, mockAreaRepository } from '@/test/mocks.ts';
+import {
+  mockAreaCategoryRepository,
+  mockAreaEventRepository,
+  mockAreaRepository,
+} from '@/test/mocks.ts';
 import { buildArea } from '@/test/factories.ts';
 import type { Server } from 'node:http';
 import type { GeofenceEvent } from '@/domain/events.ts';
@@ -14,6 +18,7 @@ let server: Server;
 let baseUrl: string;
 let areaRepo: ReturnType<typeof mockAreaRepository>;
 let areaEvents: ReturnType<typeof mockAreaEventRepository>;
+let areaCategories: ReturnType<typeof mockAreaCategoryRepository>;
 const visitedPlaces = mock(
   async (_userId: string, _range: { from?: number }): Promise<VisitedPlace[]> => [],
 );
@@ -21,10 +26,12 @@ const visitedPlaces = mock(
 beforeAll(async () => {
   areaRepo = mockAreaRepository();
   areaEvents = mockAreaEventRepository();
+  areaCategories = mockAreaCategoryRepository();
 
   const deps: AppDeps = {
     areaRepo,
     areaEvents,
+    areaCategories,
     users: { listUserIds: async () => ['AB', 'CD'] },
     recompute: async () => ({ locations: 10, before: 2, after: 4 }),
     visitedPlaces,
@@ -61,6 +68,8 @@ beforeEach(() => {
   areaRepo.removeArea.mockClear();
   areaRepo.getArea.mockClear();
   areaRepo.updateArea.mockClear();
+  areaRepo.setAreaCategory.mockClear();
+  areaCategories = Object.assign(areaCategories, mockAreaCategoryRepository());
   areaEvents.listAreaEvents.mockReset();
   areaEvents.listAreaEvents.mockImplementation(() => Promise.resolve([]));
   visitedPlaces.mockReset();
@@ -758,6 +767,7 @@ describe('GET /fragments/areas', () => {
     expect(readAreasData(html)).toEqual({
       userId: '',
       featureCollection: { type: 'FeatureCollection', features: [] },
+      categories: [],
     });
     expect(areaRepo.listAreas).not.toHaveBeenCalled();
   });

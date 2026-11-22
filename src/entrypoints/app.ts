@@ -4,6 +4,7 @@ import { inferVisitedPlaces } from '@/application/infer-visited-places.ts';
 import { recomputeAreaEvents } from '@/application/recompute-area-events.ts';
 import { loadConfig } from '@/config.ts';
 import { createAppServer } from '@/infrastructure/http/app-server.ts';
+import { createAreaCategoryRepository } from '@/repository/area-category-repository/create-area-category-repository.ts';
 import { PinoLogger } from '@/infrastructure/logging/pino.logger.ts';
 import { PrometheusMetricsCollector } from '@/infrastructure/metrics/prometheus.metrics.ts';
 import { CachingPlaceFinder } from '@/infrastructure/places/caching.place-finder.ts';
@@ -50,6 +51,8 @@ if (await waitForRedis(redis)) {
 }
 
 const app = createAppServer({
+  // Categories live in the same store as the areas they group.
+  areaCategories: createAreaCategoryRepository(store),
   users: repo,
   areaRepo,
   areaEvents: repo,
