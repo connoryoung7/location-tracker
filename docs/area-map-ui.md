@@ -111,6 +111,11 @@ UI works even when Redis is down.
   leaves `geofence:inside` and `geofence:pending-exit` alone, so a user already
   inside an area does not re-enter it and fire a duplicate event. State for areas
   that no longer exist is pruned.
+- **Edits never resurrect.** `updateArea` is a single `UPDATE … WHERE id AND
+  user_id` that reports whether a row changed, so an edit racing a delete cannot
+  re-insert the area the way the `addArea` upsert would. Only a successful update
+  is projected, and the store is re-read afterwards: if a delete landed between
+  the two writes, the area is dropped from the index again.
 
 ### The one-time cutover
 
@@ -191,8 +196,9 @@ discards an edit as it does a draft.
 The form sends `PUT /areas/:userId/:areaId` with the new `name`, `lat`, `lon`,
 and `radius` (validated like a new area). The area keeps its ID and owner: the
 owner is taken from the URL and an edit can never move an area to another user.
-An unknown or since-deleted area answers `404` and is never created, so the form
-keeps your changes and says the area no longer exists.
+An unknown or since-deleted area answers `404` and is never created, even when
+the delete races the edit (see [Staying consistent](#staying-consistent)), so the
+form keeps your changes and says the area no longer exists.
 
 What an edit does to events:
 
