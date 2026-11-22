@@ -55,6 +55,34 @@ describe('SqliteAreaRepository', () => {
     expect(await repo.getArea('AB', 'a1')).toBeUndefined();
   });
 
+  test("updateArea changes an existing area's name and circle in place", async () => {
+    await repo.addArea(buildArea({ id: 'a1', userId: 'AB', name: 'Home', radius: 100 }));
+
+    const isUpdated = repo.updateArea(
+      buildArea({ id: 'a1', userId: 'AB', name: 'Gym', lat: 42.35, lon: -71.06, radius: 80 }),
+    );
+
+    expect(isUpdated).toBe(true);
+    expect(await repo.listAllAreas()).toEqual([
+      buildArea({ id: 'a1', userId: 'AB', name: 'Gym', lat: 42.35, lon: -71.06, radius: 80 }),
+    ]);
+  });
+
+  test("updateArea never inserts: an unknown, deleted, or other user's area is left alone", async () => {
+    await repo.addArea(buildArea({ id: 'a1', userId: 'AB', name: 'Home' }));
+
+    expect(repo.updateArea(buildArea({ id: 'nope', userId: 'AB' }))).toBe(false);
+    expect(repo.updateArea(buildArea({ id: 'a1', userId: 'CD', name: 'Stolen' }))).toBe(false);
+    expect(await repo.listAllAreas()).toEqual([
+      buildArea({ id: 'a1', userId: 'AB', name: 'Home' }),
+    ]);
+
+    // A delete that wins the race must stay deleted.
+    await repo.removeArea('AB', 'a1');
+    expect(repo.updateArea(buildArea({ id: 'a1', userId: 'AB', name: 'Back?' }))).toBe(false);
+    expect(await repo.listAllAreas()).toEqual([]);
+  });
+
   test('getArea is scoped by user', async () => {
     await repo.addArea(buildArea({ id: 'a1', userId: 'AB' }));
 

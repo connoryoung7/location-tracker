@@ -60,6 +60,7 @@ beforeEach(() => {
   areaRepo.addArea.mockClear();
   areaRepo.removeArea.mockClear();
   areaRepo.getArea.mockClear();
+  areaRepo.updateArea.mockClear();
   areaEvents.listAreaEvents.mockReset();
   areaEvents.listAreaEvents.mockImplementation(() => Promise.resolve([]));
   visitedPlaces.mockReset();
@@ -647,16 +648,15 @@ describe('PUT /areas/:userId/:areaId', () => {
   const CHANGES = { name: 'Gym', lat: '42.35', lon: '-71.06', radius: '75.5' };
   const readError = async (res: Response) => ((await res.json()) as { error: string }).error;
 
-  test('replaces the name and circle, keeping the ID and owner', async () => {
-    areaRepo.getArea.mockResolvedValueOnce(buildArea({ id: 'a1', userId: 'AB' }));
+  test('replaces the name and circle in one write, keeping the ID and owner', async () => {
+    areaRepo.updateArea.mockResolvedValueOnce(true);
 
     const res = await put('/areas/AB/a1', CHANGES);
 
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ id: 'a1' });
-    expect(areaRepo.getArea).toHaveBeenCalledWith('AB', 'a1');
-    expect(areaRepo.addArea).toHaveBeenCalledTimes(1);
-    expect(areaRepo.addArea.mock.calls[0]![0]).toEqual({
+    expect(areaRepo.updateArea).toHaveBeenCalledTimes(1);
+    expect(areaRepo.updateArea.mock.calls[0]![0]).toEqual({
       id: 'a1',
       userId: 'AB',
       name: 'Gym',
@@ -664,14 +664,16 @@ describe('PUT /areas/:userId/:areaId', () => {
       lon: -71.06,
       radius: 75.5,
     });
+    // The upsert could recreate an area deleted meanwhile, so it is never used here.
+    expect(areaRepo.addArea).not.toHaveBeenCalled();
   });
 
   test('never moves an area to another user', async () => {
-    areaRepo.getArea.mockResolvedValueOnce(buildArea({ id: 'a1', userId: 'AB' }));
+    areaRepo.updateArea.mockResolvedValueOnce(true);
 
     await put('/areas/AB/a1', { ...CHANGES, userId: 'CD', id: 'other' });
 
-    expect(areaRepo.addArea.mock.calls[0]![0]).toMatchObject({ id: 'a1', userId: 'AB' });
+    expect(areaRepo.updateArea.mock.calls[0]![0]).toMatchObject({ id: 'a1', userId: 'AB' });
   });
 
   test('cannot create an area: an unknown or deleted one is not found', async () => {
@@ -687,12 +689,11 @@ describe('PUT /areas/:userId/:areaId', () => {
 
     expect(res.status).toBe(422);
     expect(await readError(res)).toContain('radius');
-    expect(areaRepo.getArea).not.toHaveBeenCalled();
+    expect(areaRepo.updateArea).not.toHaveBeenCalled();
   });
 
   test('reports a store failure without claiming the edit was saved', async () => {
-    areaRepo.getArea.mockResolvedValueOnce(buildArea({ id: 'a1' }));
-    areaRepo.addArea.mockRejectedValueOnce(new Error('db down'));
+    areaRepo.updateArea.mockRejectedValueOnce(new Error('db down'));
 
     const res = await put('/areas/AB/a1', CHANGES);
 

@@ -30,6 +30,8 @@ export function mockAreaRepository(): {
 } {
   return {
     addArea: mock(() => {}),
+    // As if the area does not exist, matching getArea's default.
+    updateArea: mock(() => Promise.resolve(false)),
     removeArea: mock(() => {}),
     listAreas: mock(() => Promise.resolve([])),
     listAllAreas: mock(() => Promise.resolve([])),

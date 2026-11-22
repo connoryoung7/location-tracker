@@ -48,6 +48,18 @@ export class PostgresAreaRepository implements AreaRepository {
     `;
   }
 
+  /** Scoped by ID and owner; never inserts, unlike {@link addArea}. */
+  async updateArea(area: Area): Promise<boolean> {
+    const rows = await this.conn`
+      UPDATE areas
+      SET name = ${area.name}, lat = ${area.lat}, lon = ${area.lon}, radius = ${area.radius},
+        updated_at = NOW()
+      WHERE id = ${area.id} AND user_id = ${area.userId}
+      RETURNING id
+    `;
+    return rows.length > 0;
+  }
+
   async removeArea(userId: string, areaId: string): Promise<void> {
     await this.conn`DELETE FROM areas WHERE id = ${areaId} AND user_id = ${userId}`;
   }

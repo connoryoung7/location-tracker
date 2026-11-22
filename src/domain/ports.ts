@@ -36,6 +36,12 @@ export interface LocationRepository {
 
 export interface AreaRepository {
   addArea(area: Area): void | Promise<void>;
+  /**
+   * Changes the name and circle of an area the user already has, in one atomic
+   * write. Resolves false, changing nothing, when they have no area with that ID:
+   * unlike `addArea`, it never inserts, so it cannot bring back a deleted area.
+   */
+  updateArea(area: Area): boolean | Promise<boolean>;
   removeArea(userId: string, areaId: string): void | Promise<void>;
   listAreas(userId: string): Promise<Area[]>;
   listAllAreas(): Promise<Area[]>;
