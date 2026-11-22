@@ -73,8 +73,10 @@ café.
 ### Saving a place as an area
 
 Every place that is not already inside one of the user's areas asks **Make this
-a saved area?** Choosing **Save as area** opens a draft in the New area form and
-flies the map to it. The draft is filled in for you:
+a saved area?** in its list row, and its map popup has the same **Save as area**
+button. Either one opens a draft in the New area form and flies the map to it
+(the popup closes so it does not cover the circle). The draft is filled in for
+you:
 
 - **Name:** the best guess. A place with nothing named nearby has no name yet,
   so the form waits on the Name field.
@@ -85,8 +87,11 @@ flies the map to it. The draft is filled in for you:
 A complete draft opens on the Review step, so one more click, **Confirm and
 create**, saves it; **Back to editing** changes the name or circle first, and
 **Cancel** drops it. Nothing is saved until you confirm. Once saved, the row
-says so, and the next **Find places** names the spot after the new area and
-stops looking it up online.
+and the point's popup say so, and the next **Find places** names the spot after
+the new area and stops looking it up online.
+
+Both buttons read the draft from the row's `proposedArea` in the `places-data`
+block, so the list and the map always offer the same circle.
 
 ### Being polite to a shared server
 

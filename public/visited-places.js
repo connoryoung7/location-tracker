@@ -23,6 +23,35 @@ export function attachVisitedPlaces(map, { Popup, isDrawing, proposeArea, root =
   /** Latest view from the server, held until the style finishes loading. */
   let pendingView = null;
   let isLoaded = false;
+  /** Places of the current view saved as areas; a new view starts over. */
+  let savedPlaceIds = new Set();
+  const SAVED_MESSAGE = 'Saved as an area.';
+  const list = root.getElementById('places');
+
+  function findRow(view, placeId) {
+    return view?.rows.find((row) => row.placeId === placeId);
+  }
+
+  /**
+   * Opens the place's area draft, from the list or a popup alike. Once it is
+   * saved, the list row says so and later popups for it do too. The next Find
+   * places names it after the area.
+   */
+  async function saveAsArea(placeId) {
+    const view = pendingView;
+    const row = findRow(view, placeId);
+    if (!row?.proposedArea) return;
+
+    const isSaved = await proposeArea({ userId: view.userId, ...row.proposedArea });
+    // A newer result replaced the rows, and its place IDs mean different places.
+    if (!isSaved || view !== pendingView) return;
+    savedPlaceIds.add(placeId);
+    for (const button of list.querySelectorAll('.place-save-area')) {
+      if (button.dataset.placeId === placeId) {
+        button.closest('.place-propose').replaceChildren(SAVED_MESSAGE);
+      }
+    }
+  }
 
   map.on('load', () => {
     map.addSource(SOURCE_ID, { type: 'geojson', data: EMPTY_COLLECTION });
@@ -59,7 +88,7 @@ export function attachVisitedPlaces(map, { Popup, isDrawing, proposeArea, root =
     const feature = event.features?.[0];
     if (!feature) return;
 
-    const { label, category, note, visitCount, durationLabel } = feature.properties;
+    const { placeId, label, category, note, visitCount, durationLabel } = feature.properties;
     // Place names come from OpenStreetMap and area names from users: both untrusted.
     const container = root.createElement('div');
     container.className = 'pico popup';
@@ -77,7 +106,27 @@ export function attachVisitedPlaces(map, { Popup, isDrawing, proposeArea, root =
       .join(' · ');
     container.append(title, detail);
 
-    new Popup().setLngLat(feature.geometry.coordinates).setDOMContent(container).addTo(map);
+    const popup = new Popup();
+    const row = findRow(pendingView, placeId);
+    if (savedPlaceIds.has(placeId)) {
+      const saved = root.createElement('p');
+      saved.className = 'popup-detail';
+      saved.textContent = SAVED_MESSAGE;
+      container.append(saved);
+    } else if (row?.proposedArea) {
+      const save = root.createElement('button');
+      save.type = 'button';
+      save.className = 'popup-save-area outline';
+      save.textContent = 'Save as area';
+      save.addEventListener('click', () => {
+        // The draft's circle and centre marker sit right under the popup.
+        popup.remove();
+        saveAsArea(placeId);
+      });
+      container.append(save);
+    }
+
+    popup.setLngLat(feature.geometry.coordinates).setDOMContent(container).addTo(map);
   });
 
   map.on('mouseenter', PLACES_LAYER_ID, () => {
@@ -87,17 +136,10 @@ export function attachVisitedPlaces(map, { Popup, isDrawing, proposeArea, root =
     map.getCanvas().style.cursor = '';
   });
 
-  const list = root.getElementById('places');
-
-  list.addEventListener('click', async (event) => {
+  list.addEventListener('click', (event) => {
     const save = event.target.closest('.place-save-area');
     if (save) {
-      const { userId, name, lat, lon, radius } = save.dataset;
-      const prompt = save.closest('.place-propose');
-      if (await proposeArea({ userId, name, lat, lon, radius })) {
-        // The next Find places names it after the area; until then, say it is done.
-        prompt.replaceChildren('Saved as an area.');
-      }
+      saveAsArea(save.dataset.placeId);
       return;
     }
 
@@ -122,6 +164,7 @@ export function attachVisitedPlaces(map, { Popup, isDrawing, proposeArea, root =
     const dataElement = root.getElementById('places-data');
     if (!dataElement) return;
     pendingView = JSON.parse(dataElement.textContent);
+    savedPlaceIds = new Set();
     show(pendingView);
   });
 }

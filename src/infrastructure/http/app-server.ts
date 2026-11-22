@@ -216,18 +216,18 @@ const PLACE_CATEGORY_LIMIT = 4;
 /**
  * Asks whether a place that is not yet an area should become one. The button
  * only opens a pre-filled draft in the New area form; nothing is saved until
- * the user confirms it there.
+ * the user confirms it there. The draft itself comes from the row's
+ * `proposedArea` in the `places-data` block, which the map popup reads too.
  */
-function renderAreaProposal(row: VisitedPlaceRow, userId: string): string {
+function renderAreaProposal(row: VisitedPlaceRow): string {
   if (!row.proposedArea) return '';
-  const { name, lat, lon, radius } = row.proposedArea;
   return `
         <p class="place-propose">Make this a saved area?
-          <button type="button" class="place-save-area outline" data-user-id="${escapeHtml(userId)}" data-name="${escapeHtml(name)}" data-lat="${lat}" data-lon="${lon}" data-radius="${radius}">Save as area</button>
+          <button type="button" class="place-save-area outline" data-place-id="${escapeHtml(row.placeId)}">Save as area</button>
         </p>`;
 }
 
-function renderPlaceRow(row: VisitedPlaceRow, userId: string): string {
+function renderPlaceRow(row: VisitedPlaceRow): string {
   const detail = [row.category ?? row.note, row.durationLabel].filter(Boolean).join(' · ');
   const alternatives =
     row.alternatives.length === 0
@@ -250,7 +250,7 @@ function renderPlaceRow(row: VisitedPlaceRow, userId: string): string {
           <span class="place-visits">${row.visitCount} ${row.visitCount === 1 ? 'visit' : 'visits'}</span>
           <span class="place-detail">${escapeHtml(detail)}</span>
           <span class="place-last">Last <time datetime="${row.lastVisitIso}">${row.lastVisitIso}</time></span>
-        </button>${alternatives}${renderAreaProposal(row, userId)}
+        </button>${alternatives}${renderAreaProposal(row)}
       </li>`;
 }
 
@@ -278,7 +278,7 @@ function renderPlacesFragment(view: VisitedPlaceView): string {
 
   return `
     ${summary}
-    <ol class="place-list">${view.rows.map((row) => renderPlaceRow(row, view.userId)).join('')}</ol>
+    <ol class="place-list">${view.rows.map(renderPlaceRow).join('')}</ol>
     ${attribution}
     ${data}
   `;
