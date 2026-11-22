@@ -34,6 +34,7 @@ config schema up front. The map UI never uses the key itself.
 | `GET /fragments/events?userId=`     | HTMX fragment — a user's latest area events plus points    |
 | `GET /fragments/places?userId=`     | HTMX fragment — places a user stopped at; see below        |
 | `POST /areas`                       | Create an area; the server assigns its `id`                |
+| `PUT /areas/:userId/:areaId`        | Change an area's name and circle; see below                |
 | `DELETE /areas/:userId/:areaId`     | Delete an area                                             |
 | `GET /users`                        | Known tracker IDs and area owners for the user selector    |
 | `POST /users/recompute`             | Rebuild a user's event history; see below                  |
@@ -175,8 +176,33 @@ Validation and store errors preserve the draft for correction.
 
 The draw panel sits outside the polled `#areas` element, so background area
 refreshes preserve the draft circle, entered fields, and review step. Deleting a
-saved area remains available in its map popup. Editing an already saved area's
-geometry is a separate feature.
+saved area remains available in its map popup.
+
+## Editing an area
+
+**Edit**, in an area's map popup or its row in the List areas table, opens the
+area in the same form, now headed **Edit area**. It starts on the edit step with
+the name, centre, and radius filled in and the circle on the map. Drag the centre
+marker or change the numbers, or switch Place circle to On the map to redraw the
+circle from scratch. Review area, then **Save changes**. Cancel leaves the area
+as it was. Opening an area replaces any draft in progress, and switching users
+discards an edit as it does a draft.
+
+The form sends `PUT /areas/:userId/:areaId` with the new `name`, `lat`, `lon`,
+and `radius` (validated like a new area). The area keeps its ID and owner: the
+owner is taken from the URL and an edit can never move an area to another user.
+An unknown or since-deleted area answers `404` and is never created, so the form
+keeps your changes and says the area no longer exists.
+
+What an edit does to events:
+
+- **Live geofencing** follows the new circle from the user's next location. The
+  geofence index keeps who is inside the area, so someone still inside the moved
+  circle sees no event, someone it no longer covers gets the usual exit, and
+  someone it now covers gets an enter.
+- **Past events are unchanged.** They keep the name and circle the area had when
+  they happened. Recompute events rebuilds them from the current areas if you
+  want history to follow the edit.
 
 ## Security
 
@@ -188,7 +214,8 @@ Area names and user IDs are untrusted input, so they are HTML-escaped in the
 sidebar and the `?user=` preselection, `<`-escaped inside the JSON block, and
 rendered into the user selector and map popups via `textContent` rather than
 `innerHTML`. The server assigns every area's `id`, so a client cannot
-overwrite an existing area by posting a known one.
+overwrite an existing area by posting a known one; an edit must name an area
+that already exists, under the user it belongs to.
 
 ## Offline behavior
 
@@ -202,8 +229,9 @@ The Areas panel lists the selected user's areas by name; click one to zoom the
 map to it. **List areas**, in the panel header, opens a modal table of the same
 areas with their centre and radius, sorted by name. The table is fetched each
 time the modal opens. **Show** closes the modal and zooms the map to that area's
-circle. **Delete** asks for confirmation, then refreshes the Areas panel, the
-map, and the table together.
+circle. **Edit** closes the modal and opens the area for editing (see
+[Editing an area](#editing-an-area)). **Delete** asks for confirmation, then
+refreshes the Areas panel, the map, and the table together.
 
 ## Viewing events
 

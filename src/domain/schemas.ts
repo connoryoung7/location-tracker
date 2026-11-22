@@ -194,3 +194,6 @@ export const CreateAreaSchema = z.object({
     .transform(Number)
     .pipe(z.number().positive().max(100_000)),
 });
+
+/** What an area edit may change. The owner and ID come from the URL and never change. */
+export const UpdateAreaSchema = CreateAreaSchema.omit({ userId: true });

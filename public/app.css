@@ -482,6 +482,17 @@ body {
   --pico-color: var(--surface-raised);
 }
 
+.pico.popup .popup-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.pico.popup .popup-edit {
+  margin: 0;
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--text-sm);
+}
+
 /* ---------- Confirm dialog ---------- */
 
 .pico #confirm-dialog article {

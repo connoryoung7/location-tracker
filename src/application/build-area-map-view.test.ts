@@ -111,6 +111,16 @@ describe('buildAreaMapView', () => {
     expect(gym!.properties.color).toBe(home!.properties.color);
   });
 
+  test('features carry their centre and radius, so the map popup can open one for editing', () => {
+    const view = buildAreaMapView([buildArea({ lat: 42.3601, lon: -71.0589, radius: 120 })]);
+
+    expect(view.featureCollection.features[0]!.properties).toMatchObject({
+      lat: 42.3601,
+      lon: -71.0589,
+      radius: 120,
+    });
+  });
+
   test('bounds enclose each full circle, not just the center points', () => {
     const area = buildArea({ lat: 42.3601, lon: -71.0589, radius: 1000 });
 

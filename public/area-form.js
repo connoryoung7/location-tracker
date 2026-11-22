@@ -2,7 +2,28 @@
  * Local draft controller. Only a second, explicit submit sends a creation request.
  * The area is drafted for the page-wide user in `#user-select`; the review step
  * shows that user, and a draft reviewed for one user is never saved for another.
+ *
+ * The same draft edits an existing area: `editArea` opens it pre-filled, and the
+ * confirmed draft replaces that area's name and circle instead of adding one.
  */
+
+const COPY = {
+  create: {
+    heading: 'New area',
+    reviewNote: 'The circle is a draft. Confirm and create adds it to your saved areas.',
+    confirm: 'Confirm and create',
+    saving: 'Creating…',
+    failed: 'Could not create area. Your draft has been kept.',
+  },
+  edit: {
+    heading: 'Edit area',
+    reviewNote: 'Save changes replaces the name and circle of this area.',
+    confirm: 'Save changes',
+    saving: 'Saving…',
+    failed: 'Could not save changes. Your edits have been kept.',
+  },
+};
+
 export function createAreaForm(
   root,
   {
@@ -32,6 +53,9 @@ export function createAreaForm(
   let isReviewing = false;
   let isSaving = false;
   let reviewed = null;
+  /** The area being edited, or null while drafting a new one. */
+  let editingAreaId = null;
+  const copy = () => (editingAreaId ? COPY.edit : COPY.create);
   /** Resolves the promise `propose` returned: true once saved, false once abandoned. */
   let settleProposal = null;
   function settle(isSaved) {
@@ -72,7 +96,10 @@ export function createAreaForm(
       radius <= 100000;
     preview(valid ? [lon, lat] : null, valid ? radius : 0);
   }
-  function open() {
+  function open(areaId = null) {
+    editingAreaId = areaId;
+    root.getElementById('draw-heading').textContent = copy().heading;
+    root.getElementById('draw-review-note').textContent = copy().reviewNote;
     form.hidden = false;
     root.getElementById('draw-start').hidden = true;
     setError('');
@@ -86,7 +113,7 @@ export function createAreaForm(
     editingChanged(false);
     fields.hidden = true;
     confirmation.hidden = false;
-    submit.textContent = 'Confirm and create';
+    submit.textContent = copy().confirm;
     setError('');
     updatePreview();
   }
@@ -94,6 +121,8 @@ export function createAreaForm(
     settle(false);
     edit();
     form.reset();
+    editingAreaId = null;
+    root.getElementById('draw-heading').textContent = COPY.create.heading;
     form.hidden = true;
     root.getElementById('draw-start').hidden = false;
     setError('');
@@ -155,21 +184,32 @@ export function createAreaForm(
       return;
     }
     isSaving = true;
-    submit.textContent = 'Creating…';
+    submit.textContent = copy().saving;
     for (const control of form.querySelectorAll('button')) control.disabled = true;
+    const { failed } = copy();
     try {
-      const response = await request('/areas', {
-        method: 'POST',
+      const { userId, ...changes } = reviewed;
+      // The owner is fixed for an edit, so it travels in the URL, not the body.
+      const [url, method, body, expected] = editingAreaId
+        ? [
+            `/areas/${encodeURIComponent(userId)}/${encodeURIComponent(editingAreaId)}`,
+            'PUT',
+            changes,
+            200,
+          ]
+        : ['/areas', 'POST', reviewed, 201];
+      const response = await request(url, {
+        method,
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-        body: JSON.stringify(reviewed),
+        body: JSON.stringify(body),
       });
-      if (response.status !== 201) {
-        const detail = response.status === 422 ? await response.json().catch(() => ({})) : {};
+      if (response.status !== expected) {
+        // 422 names the bad field; 404 means the area was deleted meanwhile.
+        const hasDetail = response.status === 422 || response.status === 404;
+        const detail = hasDetail ? await response.json().catch(() => ({})) : {};
         throw new Error(
           detail.error ||
-            (response.status === 422
-              ? 'Check the area values and try again.'
-              : 'Could not create area. Your draft has been kept.'),
+            (response.status === 422 ? 'Check the area values and try again.' : failed),
         );
       }
       settle(true);
@@ -177,7 +217,7 @@ export function createAreaForm(
       saved();
     } catch (failure) {
       edit();
-      setError(failure.message || 'Could not create area. Your draft has been kept.');
+      setError(failure.message || failed);
     } finally {
       isSaving = false;
       for (const control of form.querySelectorAll('button')) control.disabled = false;
@@ -243,6 +283,28 @@ export function createAreaForm(
       return new Promise((resolve) => {
         settleProposal = resolve;
       });
+    },
+    /**
+     * Opens an existing area pre-filled, at the edit step with its circle on the
+     * map, replacing any draft in progress. Saving replaces its name and circle;
+     * Cancel leaves it as it was. Returns false, opening nothing, while another
+     * area is being saved or when the area is not the page-wide user's.
+     */
+    editArea({ userId, areaId, name, lat, lon, radius }) {
+      if (isSaving || !areaId || !userId || userId !== userSelect.value) return false;
+      settle(false);
+      open(areaId);
+      placement.value = 'coordinates';
+      coordinates.open = true;
+      root.getElementById('draw-placement-hint').textContent =
+        'Drag the centre marker or edit the coordinates and radius. Choose Review area when ready.';
+      for (const [key, value] of Object.entries({ name, lat, lon, radius })) {
+        form.elements.namedItem(key).value = String(value);
+      }
+      placementChanged('coordinates');
+      updatePreview();
+      form.elements.namedItem('name').focus();
+      return true;
     },
   };
 }
