@@ -1,6 +1,7 @@
 import { createDraftMarker } from '/static/draft-marker.js';
 import { createAreaForm } from '/static/area-form.js';
 import {
+  guardStaleResponses,
   rememberUserSelection,
   restoreUserSelection,
   syncUserActions,
@@ -197,34 +198,16 @@ function renderEvents(view) {
   frameUserOnce(view?.userId, view?.bounds);
 }
 
-/**
- * A response that arrives after the user changed belongs to the previous user.
- * Requests are synced per panel, but a delete or create answers into `#areas`
- * from elsewhere; reload instead of showing the wrong user's data.
- */
-function isForSelectedUser(view, target) {
-  const userId = view?.userId ?? '';
-  if (userId === userSelect.value) {
-    return true;
-  }
-
-  window.htmx?.trigger(target, 'refresh');
-  return false;
-}
-
+// Only the selected user's responses are ever swapped in (see `guardStaleResponses`),
+// so whatever lands here is theirs.
 function readSwappedEvents() {
   const dataElement = document.getElementById('events-data');
   if (!dataElement) {
     return;
   }
 
-  const view = JSON.parse(dataElement.textContent);
-  if (!isForSelectedUser(view, '#events')) {
-    return;
-  }
-
-  pendingEventsView = view;
-  renderEvents(view);
+  pendingEventsView = JSON.parse(dataElement.textContent);
+  renderEvents(pendingEventsView);
 }
 
 // The server groups events into days; send the viewer's zone so they are the viewer's days.
@@ -371,10 +354,6 @@ function readSwappedView() {
   }
 
   const view = JSON.parse(dataElement.textContent);
-  if (!isForSelectedUser(view, '#areas')) {
-    return;
-  }
-
   pendingView = view;
   if (isStyleLoaded) {
     render(view);
@@ -509,6 +488,7 @@ document.getElementById('draw-form').addEventListener('submit', () => {
 // --- The page-wide user ------------------------------------------------------
 
 // Runs before htmx's `load` trigger, so the first fragment loads carry the user.
+guardStaleResponses(document);
 const initialSelection = restoreUserSelection(document);
 rememberUserSelection(document, initialSelection.userId);
 syncUserActions(document, initialSelection.userId);
@@ -532,6 +512,14 @@ watchUserScope(document, {
   discardDraft: () => areaForm.discard(),
   confirmSwitch: (next) =>
     askToConfirm(`Switch to ${next || 'no user'}? The area you're drafting will be discarded.`),
+  // Creating an area takes a moment; its completion closes the form, so it has
+  // to finish for the current user before anyone else's draft can start.
+  isSwitchBlocked: () => areaForm.isSaving(),
+  onSwitchBlocked: () => {
+    // Shown beside the button being waited on; saving or failing replaces it.
+    document.getElementById('form-error').textContent =
+      'Still saving this area. Switch users once it is done.';
+  },
   onChange: (userId) => {
     rememberUserSelection(document, userId);
     syncUserActions(document, userId);
@@ -547,6 +535,9 @@ watchUserScope(document, {
       map.getSource(SOURCE_ID).setData(EMPTY_COLLECTION);
       map.getSource(EVENTS_SOURCE_ID).setData(EMPTY_COLLECTION);
     }
+    // A Find places still running for the previous user would only be discarded
+    // when it answers; cancel it now so its button is free for the new user.
+    window.htmx?.trigger('#places-form', 'htmx:abort');
     visitedPlaces.clear();
     setNotice('recompute-result', 'info', '');
   },

@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, mock, test } from 'bun:test';
 import { Window, type HTMLButtonElement, type HTMLSelectElement } from 'happy-dom';
 import {
+  guardStaleResponses,
   rememberUserSelection,
   restoreUserSelection,
   syncUserActions,
@@ -248,23 +249,31 @@ test('syncUserActions disables every user action until a user is selected', () =
 });
 
 describe('watchUserScope', () => {
-  function watch({ isDraftOpen = false, confirms = true } = {}) {
+  function watch({ isDraftOpen = false, confirms = true, isSaving = false } = {}) {
     const context = setup();
     const { document, select, window } = context;
     updateUserSelect(document, ['AB', 'CD']);
     select.value = 'AB';
     let draftOpen = isDraftOpen;
+    let saving = isSaving;
     const discardDraft = mock(() => {
       draftOpen = false;
     });
     const confirmSwitch = mock(async (_next: string) => confirms);
     const onChange = mock((_userId: string) => {});
+    const onSwitchBlocked = mock((_next: string) => {});
     watchUserScope(document, {
       isDraftOpen: () => draftOpen,
       discardDraft,
       confirmSwitch,
       onChange,
+      isSwitchBlocked: () => saving,
+      onSwitchBlocked,
     });
+    const finishSaving = () => {
+      saving = false;
+      draftOpen = false;
+    };
     // Stands in for htmx, which reloads the panels on `change from:#user-scope`.
     const panelsReloaded = mock(() => {});
     document.getElementById('user-scope')!.addEventListener('change', panelsReloaded);
@@ -273,8 +282,46 @@ describe('watchUserScope', () => {
       select.dispatchEvent(new window.Event('change', { bubbles: true }));
     };
     const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
-    return { ...context, discardDraft, confirmSwitch, onChange, panelsReloaded, pick, settle };
+    return {
+      ...context,
+      discardDraft,
+      confirmSwitch,
+      onChange,
+      onSwitchBlocked,
+      finishSaving,
+      panelsReloaded,
+      pick,
+      settle,
+    };
   }
+
+  test('while an area is saving, a switch is refused outright', () => {
+    const {
+      pick,
+      select,
+      onChange,
+      onSwitchBlocked,
+      confirmSwitch,
+      discardDraft,
+      panelsReloaded,
+      finishSaving,
+    } = watch({ isDraftOpen: true, isSaving: true });
+
+    pick('CD');
+
+    // Not even asked: the save belongs to AB and must finish first.
+    expect(select.value).toBe('AB');
+    expect(onSwitchBlocked).toHaveBeenCalledWith('CD');
+    expect(confirmSwitch).not.toHaveBeenCalled();
+    expect(discardDraft).not.toHaveBeenCalled();
+    expect(onChange).not.toHaveBeenCalled();
+    expect(panelsReloaded).not.toHaveBeenCalled();
+
+    // Once it has saved, the same switch goes through.
+    finishSaving();
+    pick('CD');
+    expect(onChange).toHaveBeenCalledWith('CD');
+  });
 
   test('without a draft, a switch goes straight through', () => {
     const { pick, onChange, confirmSwitch, panelsReloaded } = watch();
@@ -330,5 +377,54 @@ describe('watchUserScope', () => {
     expect(confirmSwitch).not.toHaveBeenCalled();
     expect(discardDraft).toHaveBeenCalledTimes(1);
     expect(onChange).toHaveBeenCalledWith('CD');
+  });
+});
+
+describe('guardStaleResponses', () => {
+  /** Replays the two htmx events a request goes through, as htmx dispatches them. */
+  function requestLifecycle() {
+    const context = setup();
+    const { document, select, window } = context;
+    updateUserSelect(document, ['AB', 'CD']);
+    select.value = 'AB';
+    guardStaleResponses(document);
+    const panel = document.getElementById('areas')!;
+    const send = () => {
+      const xhr = {};
+      panel.dispatchEvent(
+        new window.CustomEvent('htmx:beforeRequest', { bubbles: true, detail: { xhr } }),
+      );
+      return xhr;
+    };
+    const swapAllowed = (xhr: object) => {
+      const detail = { xhr, shouldSwap: true };
+      panel.dispatchEvent(new window.CustomEvent('htmx:beforeSwap', { bubbles: true, detail }));
+      return detail.shouldSwap;
+    };
+    return { ...context, send, swapAllowed };
+  }
+
+  test('swaps in a response for the user it was requested for', () => {
+    const { send, swapAllowed } = requestLifecycle();
+
+    expect(swapAllowed(send())).toBe(true);
+  });
+
+  test('drops a response that arrives after the user changed', () => {
+    const { select, send, swapAllowed } = requestLifecycle();
+
+    // E.g. a delete of one of AB's areas, still running when the viewer picks CD.
+    const forAB = send();
+    select.value = 'CD';
+    const forCD = send();
+
+    expect(swapAllowed(forAB)).toBe(false);
+    expect(swapAllowed(forCD)).toBe(true);
+  });
+
+  test("leaves alone a response it didn't see the request for", () => {
+    const { swapAllowed } = requestLifecycle();
+
+    expect(swapAllowed({})).toBe(true);
   });
 });

@@ -183,9 +183,16 @@ export function createAreaForm(
     isOpen() {
       return !form.hidden;
     },
-    /** Throws the draft away, as Cancel does. */
+    /** Whether a confirmed area is being created right now. */
+    isSaving() {
+      return isSaving;
+    },
+    /**
+     * Throws the draft away, as Cancel does. Refused while saving: the request is
+     * already on its way, and its completion closes the form itself.
+     */
     discard() {
-      if (!form.hidden) close();
+      if (!isSaving && !form.hidden) close();
     },
     setGeometry(centre, radius) {
       if (isSaving || isReviewing) return;

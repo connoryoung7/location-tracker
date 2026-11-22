@@ -142,6 +142,28 @@ export function syncUserActions(root, userId) {
 }
 
 /**
+ * Discards any htmx response whose request was sent while a different user was
+ * selected, before it replaces anything. That covers every request on the page,
+ * whatever sent it: panel loads and polls, deletes from a popup or the areas
+ * list, Recompute events, and Find places. Without it, a slow response for the
+ * previous user could land after a switch and show their data under the new one.
+ */
+export function guardStaleResponses(root) {
+  const select = selectOf(root);
+  const requestedFor = new WeakMap();
+
+  root.body.addEventListener('htmx:beforeRequest', (event) => {
+    requestedFor.set(event.detail.xhr, select.value);
+  });
+  root.body.addEventListener('htmx:beforeSwap', (event) => {
+    const { xhr } = event.detail;
+    if (requestedFor.has(xhr) && requestedFor.get(xhr) !== select.value) {
+      event.detail.shouldSwap = false;
+    }
+  });
+}
+
+/**
  * Calls `onChange` whenever the selected user changes, after first asking
  * before a switch would discard an open area draft.
  *
@@ -149,8 +171,22 @@ export function syncUserActions(root, userId) {
  * which listens on the `#user-scope` form, reloads anything. A change made by
  * the poll because the old user no longer exists is never asked about: there
  * is nobody left to save the draft for, so the draft is simply discarded.
+ *
+ * While `isSwitchBlocked()` (an area is being saved) a switch is refused
+ * outright: the save belongs to the current user and must finish first, or its
+ * completion would close whatever draft is open by then.
  */
-export function watchUserScope(root, { isDraftOpen, discardDraft, confirmSwitch, onChange }) {
+export function watchUserScope(
+  root,
+  {
+    isDraftOpen,
+    discardDraft,
+    confirmSwitch,
+    onChange,
+    isSwitchBlocked = () => false,
+    onSwitchBlocked = (_next) => {},
+  },
+) {
   const select = selectOf(root);
   let current = select.value;
 
@@ -160,6 +196,13 @@ export function watchUserScope(root, { isDraftOpen, discardDraft, confirmSwitch,
       if (event.target !== select) return;
       const next = select.value;
       if (next === current) return;
+
+      if (isSwitchBlocked() && hasOption(select, current)) {
+        event.stopPropagation();
+        select.value = current;
+        onSwitchBlocked(next);
+        return;
+      }
 
       if (isDraftOpen() && hasOption(select, current)) {
         event.stopPropagation();

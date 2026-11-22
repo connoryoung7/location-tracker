@@ -279,6 +279,29 @@ test('the review shows the page-wide user, and a changed user is reviewed again,
   expect(JSON.parse(request.mock.calls[0]![1]!.body as string)).toMatchObject({ userId: 'CD' });
 });
 
+test("discard can't interrupt a save, so the save can't later close another draft", async () => {
+  const { byId, form, set, submit, request, controller, saved } = setup();
+  let respond!: (response: Response) => void;
+  request.mockImplementationOnce(() => new Promise<Response>((resolve) => (respond = resolve)));
+  byId('draw-start').click();
+  set('name', 'Home');
+  controller.setGeometry([-71, 42], 250);
+  await submit();
+  await submit();
+
+  // The POST is on its way.
+  expect(controller.isSaving()).toBe(true);
+  controller.discard();
+  expect(form.hidden).toBe(false);
+
+  respond(new Response('{}', { status: 201 }));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  expect(controller.isSaving()).toBe(false);
+  expect(form.hidden).toBe(true);
+  expect(saved).toHaveBeenCalledTimes(1);
+});
+
 test('isOpen and discard let a user switch throw the draft away', () => {
   const { byId, form, set, controller, preview, request } = setup();
   expect(controller.isOpen()).toBe(false);
