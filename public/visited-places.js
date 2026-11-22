@@ -27,6 +27,8 @@ export function attachVisitedPlaces(map, { Popup, isDrawing, proposeArea, root =
   let savedPlaceIds = new Set();
   /** The place popup last opened. Its content describes one view, so it closes with it. */
   let openPopup = null;
+  /** Counts views. Each view's points carry its number as `viewGeneration`. */
+  let viewGeneration = 0;
   const SAVED_MESSAGE = 'Saved as an area.';
   const list = root.getElementById('places');
 
@@ -101,6 +103,9 @@ export function attachVisitedPlaces(map, { Popup, isDrawing, proposeArea, root =
 
     const feature = event.features?.[0];
     if (!feature) return;
+    // setData applies asynchronously, so an older view's points stay clickable
+    // for a moment. Their place IDs would name different places in this view.
+    if (feature.properties.viewGeneration !== viewGeneration) return;
 
     const { placeId, label, category, note, visitCount, durationLabel } = feature.properties;
     // Place names come from OpenStreetMap and area names from users: both untrusted.
@@ -179,6 +184,10 @@ export function attachVisitedPlaces(map, { Popup, isDrawing, proposeArea, root =
     const dataElement = root.getElementById('places-data');
     if (!dataElement) return;
     pendingView = JSON.parse(dataElement.textContent);
+    viewGeneration += 1;
+    for (const feature of pendingView.featureCollection.features) {
+      feature.properties.viewGeneration = viewGeneration;
+    }
     savedPlaceIds = new Set();
     closePopup();
     show(pendingView);

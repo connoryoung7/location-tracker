@@ -13,14 +13,20 @@ const VIEW = {
   rows: [{ placeId: 'place-1', proposedArea: PROPOSED }, { placeId: 'place-2' }],
   featureCollection: {
     type: 'FeatureCollection',
-    features: [{ type: 'Feature', geometry: { type: 'Point', coordinates: [-71.04, 42.37] } }],
+    features: ['place-1', 'place-2'].map((placeId) => ({
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [-71.04, 42.37] },
+      properties: { placeId, label: 'Fresh Market', visitCount: 2 } as Record<string, unknown>,
+    })),
   },
   bounds: [-71.05, 42.36, -71.04, 42.37],
 };
 
+type FeatureCollection = typeof VIEW.featureCollection;
+
 function fakeMap() {
   const handlers: Record<string, Handler[]> = {};
-  const source = { setData: mock((_data: unknown) => {}) };
+  const source = { setData: mock((_data: FeatureCollection) => {}) };
   return {
     source,
     on(event: string, layerOrHandler: string | Handler, handler?: Handler) {
@@ -88,42 +94,50 @@ function setup({ isDrawing = false, isSaved = true } = {}) {
      <script type="application/json" id="places-data">${JSON.stringify(view)}</script>`;
 
   const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+  /** The points the map was last given, as a click on one would report them. */
+  const rendered = () => map.source.setData.mock.calls.at(-1)![0].features;
   /** Clicks a place's map point and returns the popup it opened. */
-  const clickPoint = (placeId: string) => {
+  const clickPoint = (placeId: string, features = rendered()) => {
     map.fire(`click:${PLACES_LAYER_ID}`, {
-      features: [
-        {
-          geometry: { coordinates: [-71.04, 42.37] },
-          properties: { placeId, label: 'Fresh Market', visitCount: 2 },
-        },
-      ],
+      features: features.filter((feature) => feature.properties.placeId === placeId),
     });
     return popups.at(-1)!;
   };
 
-  return { document, map, popups, list, swap, fragment, proposeArea, flush, clickPoint };
+  return {
+    document,
+    map,
+    popups,
+    list,
+    swap,
+    fragment,
+    proposeArea,
+    flush,
+    rendered,
+    clickPoint,
+  };
 }
 
 describe('attachVisitedPlaces', () => {
   test('adds its layer once the map loads and shows a result that arrived earlier', () => {
-    const { map, swap, fragment } = setup();
+    const { map, swap, fragment, rendered } = setup();
 
     swap(fragment(VIEW));
     expect(map.source.setData).not.toHaveBeenCalled();
     map.fire('load');
 
     expect(map.addLayer.mock.calls[0]![0].id).toBe(PLACES_LAYER_ID);
-    expect(map.source.setData).toHaveBeenLastCalledWith(VIEW.featureCollection);
+    expect(rendered().map((feature) => feature.properties.placeId)).toEqual(['place-1', 'place-2']);
     expect(map.fitBounds).toHaveBeenCalledWith(VIEW.bounds, { padding: 60, maxZoom: 15 });
   });
 
   test('shows each new result and puts visit times in local time', () => {
-    const { map, list, swap, fragment } = setup();
+    const { map, list, swap, fragment, rendered } = setup();
     map.fire('load');
 
     swap(fragment(VIEW));
 
-    expect(map.source.setData).toHaveBeenLastCalledWith(VIEW.featureCollection);
+    expect(rendered().map((feature) => feature.properties.placeId)).toEqual(['place-1', 'place-2']);
     const time = list.querySelector('time')!;
     expect(time.textContent).toBe(new Date('2023-11-14T22:43:20.000Z').toLocaleString());
   });
@@ -274,35 +288,51 @@ describe('attachVisitedPlaces', () => {
   });
 
   test('a point opens a popup that treats names as text', () => {
-    const { map, popups } = setup();
+    const { map, swap, fragment, clickPoint } = setup();
     const hostile = '<img src=x onerror=alert(1)>';
-
-    map.fire(`click:${PLACES_LAYER_ID}`, {
-      features: [
-        {
-          geometry: { coordinates: [-71.04, 42.37] },
-          properties: {
-            label: hostile,
-            category: 'Grocery store',
-            visitCount: 2,
-            durationLabel: '1h 10m',
-          },
+    const properties = {
+      placeId: 'place-1',
+      label: hostile,
+      category: 'Grocery store',
+      visitCount: 2,
+      durationLabel: '1h 10m',
+    };
+    map.fire('load');
+    swap(
+      fragment({
+        ...VIEW,
+        featureCollection: {
+          ...VIEW.featureCollection,
+          features: [{ ...VIEW.featureCollection.features[0]!, properties }],
         },
-      ],
-    });
+      }),
+    );
 
-    const content = popups[0]!.content!;
+    const content = clickPoint('place-1').content!;
     expect(content.textContent).toContain(hostile);
     expect(content.textContent).toContain('Grocery store · 2 visits · 1h 10m');
     expect(content.innerHTML).not.toContain('<img');
   });
 
   test('points do nothing while an area is being drawn', () => {
-    const { map, popups } = setup({ isDrawing: true });
+    const { map, popups, swap, fragment, clickPoint } = setup({ isDrawing: true });
+    map.fire('load');
+    swap(fragment(VIEW));
 
-    map.fire(`click:${PLACES_LAYER_ID}`, {
-      features: [{ geometry: { coordinates: [0, 0] }, properties: { label: 'x', visitCount: 1 } }],
-    });
+    clickPoint('place-1');
+
+    expect(popups).toHaveLength(0);
+  });
+
+  test('a point from an older result, still drawn until setData lands, opens nothing', () => {
+    const { map, popups, swap, fragment, rendered, clickPoint } = setup();
+    map.fire('load');
+    swap(fragment(VIEW));
+    const oldPoints = rendered();
+
+    // Same place IDs, but a different user's places.
+    swap(fragment({ ...VIEW, userId: 'CD' }));
+    clickPoint('place-1', oldPoints);
 
     expect(popups).toHaveLength(0);
   });
