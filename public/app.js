@@ -1,4 +1,7 @@
+import { basemapStyleFor, followColorScheme } from '/static/basemap.js';
+import { createConfirmDialog } from '/static/confirm-dialog.js';
 import { createDraftMarker } from '/static/draft-marker.js';
+import { setNotice, toneFromResponses } from '/static/notices.js';
 import { createAreaForm } from '/static/area-form.js';
 import {
   guardStaleResponses,
@@ -22,6 +25,8 @@ const SOURCE_ID = 'areas';
 const DRAW_SOURCE_ID = 'draw-preview';
 const EVENTS_SOURCE_ID = 'events';
 const EVENT_COLORS = { entered: '#16a34a', exited: '#dc2626' };
+/** The draft circle while drawing; a mid blue that reads on both the light and dark basemap. */
+const DRAFT_COLOR = '#0284c7';
 const EMPTY_COLLECTION = { type: 'FeatureCollection', features: [] };
 
 /**
@@ -32,21 +37,16 @@ const EMPTY_COLLECTION = { type: 'FeatureCollection', features: [] };
 const EARTH_RADIUS_METERS = 6_371_008.8;
 const PREVIEW_VERTICES = 64;
 
-/**
- * OpenFreeMap vector basemaps: free, no API key, and muted enough that the
- * per-user area colours stand out. Picked once at load to match the sidebar's
- * colour scheme; switching live would need setStyle, which drops the area layers.
- */
-const BASEMAP_STYLE = window.matchMedia('(prefers-color-scheme: dark)').matches
-  ? 'https://tiles.openfreemap.org/styles/dark'
-  : 'https://tiles.openfreemap.org/styles/positron';
+const colorScheme = window.matchMedia('(prefers-color-scheme: dark)');
 
 const map = new MapLibreMap({
   container: 'map',
-  style: BASEMAP_STYLE,
+  style: basemapStyleFor(colorScheme.matches),
   center: [0, 0],
   zoom: 1,
 });
+// Before any overlay is added, so it can tell the basemap's sources from the page's.
+followColorScheme(map, colorScheme);
 map.addControl(new NavigationControl(), 'top-right');
 map.addControl(new ScaleControl());
 
@@ -109,13 +109,13 @@ map.on('load', () => {
     id: 'draw-fill',
     type: 'fill',
     source: DRAW_SOURCE_ID,
-    paint: { 'fill-color': '#111827', 'fill-opacity': 0.15 },
+    paint: { 'fill-color': DRAFT_COLOR, 'fill-opacity': 0.15 },
   });
   map.addLayer({
     id: 'draw-outline',
     type: 'line',
     source: DRAW_SOURCE_ID,
-    paint: { 'line-color': '#111827', 'line-width': 2, 'line-dasharray': [2, 2] },
+    paint: { 'line-color': DRAFT_COLOR, 'line-width': 2, 'line-dasharray': [2, 2] },
   });
 
   // Added after the areas so the points sit on top of the circles they mark.
@@ -212,7 +212,8 @@ function renderEvents(view) {
         })),
       }
     : EMPTY_COLLECTION;
-  map.getSource(EVENTS_SOURCE_ID).setData(points);
+  // Optional: the source is briefly missing if a basemap switch has to rebuild the style.
+  map.getSource(EVENTS_SOURCE_ID)?.setData(points);
   frameUserOnce(view?.userId, view?.bounds);
 }
 
@@ -420,7 +421,7 @@ map.on('mouseleave', 'areas-fill', () => {
 });
 
 function render(view) {
-  map.getSource(SOURCE_ID).setData(view.featureCollection);
+  map.getSource(SOURCE_ID)?.setData(view.featureCollection);
   frameUserOnce(view.userId, view.bounds);
 }
 
@@ -581,7 +582,7 @@ let hasCheckedRequestedUser = false;
 
 function showUserNotice(kind, tone, message) {
   userNotice = kind;
-  setNotice('user-status', tone, message);
+  showNotice('user-status', tone, message);
 }
 
 function updateTitle(userId) {
@@ -592,7 +593,7 @@ watchUserScope(document, {
   isDraftOpen: () => areaForm.isOpen(),
   discardDraft: () => areaForm.discard(),
   confirmSwitch: (next) =>
-    askToConfirm(`Switch to ${next || 'no user'}? The area you're drafting will be discarded.`),
+    confirmDialog.ask(`Switch to ${next || 'no user'}? The area you're drafting will be discarded.`),
   // Creating an area takes a moment; its completion closes the form, so it has
   // to finish for the current user before anyone else's draft can start.
   isSwitchBlocked: () => areaForm.isSaving(),
@@ -615,14 +616,14 @@ watchUserScope(document, {
     pendingView = null;
     pendingEventsView = null;
     if (isStyleLoaded) {
-      map.getSource(SOURCE_ID).setData(EMPTY_COLLECTION);
-      map.getSource(EVENTS_SOURCE_ID).setData(EMPTY_COLLECTION);
+      map.getSource(SOURCE_ID)?.setData(EMPTY_COLLECTION);
+      map.getSource(EVENTS_SOURCE_ID)?.setData(EMPTY_COLLECTION);
     }
     // A Find places still running for the previous user would only be discarded
     // when it answers; cancel it now so its button is free for the new user.
     window.htmx?.trigger('#places-form', 'htmx:abort');
     visitedPlaces.clear();
-    setNotice('recompute-result', 'info', '');
+    showNotice('recompute-result', 'info', '');
   },
 });
 
@@ -706,71 +707,13 @@ map.on('mousemove', (event) => {
   areaForm.setGeometry(drawCentre, drawRadius);
 });
 
-/** Sets a status line's text and tone; an empty message hides it via CSS. */
-function setNotice(id, tone, message) {
-  const element = document.getElementById(id);
-  element.dataset.tone = tone;
-  element.textContent = message;
+function showNotice(id, tone, message) {
+  setNotice(document.getElementById(id), tone, message);
 }
 
 // The recompute endpoint answers 422/503 with plain text into the same target
 // as a success, so the tone has to come from the status code.
-document.body.addEventListener('htmx:afterSwap', (event) => {
-  const { target, xhr } = event.detail;
-  if (target?.id === 'recompute-result') {
-    target.dataset.tone = xhr.status < 400 ? 'success' : 'error';
-  }
-});
+toneFromResponses(document, 'recompute-result');
 
-/**
- * A styled replacement for the browser's native `confirm()`, used for every
- * `hx-confirm` and for questions the page asks itself. Cancelling (the button,
- * Escape, or a backdrop click) runs `onDismiss`; htmx then never sends its request.
- */
-const confirmDialog = document.getElementById('confirm-dialog');
-let pendingConfirm = null;
-
-function openConfirm(question, onAccept, onDismiss = () => {}) {
-  pendingConfirm = { onAccept, onDismiss };
-  document.getElementById('confirm-message').textContent = question;
-  confirmDialog.showModal();
-  document.getElementById('confirm-accept').focus();
-}
-
-/** Resolves true if the question is confirmed, false if it is dismissed. */
-function askToConfirm(question) {
-  return new Promise((resolve) => {
-    openConfirm(
-      question,
-      () => resolve(true),
-      () => resolve(false),
-    );
-  });
-}
-
-document.body.addEventListener('htmx:confirm', (event) => {
-  if (!event.detail.question) return;
-  event.preventDefault();
-  const { detail } = event;
-  openConfirm(detail.question, () => detail.issueRequest(true));
-});
-
-document.getElementById('confirm-accept').addEventListener('click', () => {
-  const pending = pendingConfirm;
-  // Cleared first, so the close handler below doesn't treat this as a dismissal.
-  pendingConfirm = null;
-  confirmDialog.close();
-  pending?.onAccept();
-});
-
-document.getElementById('confirm-cancel').addEventListener('click', () => confirmDialog.close());
-
-confirmDialog.addEventListener('click', (event) => {
-  if (event.target === confirmDialog) confirmDialog.close();
-});
-
-confirmDialog.addEventListener('close', () => {
-  const pending = pendingConfirm;
-  pendingConfirm = null;
-  pending?.onDismiss();
-});
+// Used lazily (by the user switch above), so declaring it last is fine.
+const confirmDialog = createConfirmDialog(document);

@@ -91,7 +91,8 @@ export function attachVisitedPlaces(map, { Popup, isDrawing, proposeArea, root =
   function show(view) {
     if (!isLoaded) return;
 
-    map.getSource(SOURCE_ID).setData(view ? view.featureCollection : EMPTY_COLLECTION);
+    // Optional: the source is briefly missing if a basemap switch has to rebuild the style.
+    map.getSource(SOURCE_ID)?.setData(view ? view.featureCollection : EMPTY_COLLECTION);
     // Results are only ever fetched on request, so framing them never fights a poll.
     if (view?.bounds) {
       map.fitBounds(view.bounds, { padding: 60, maxZoom: 15 });
