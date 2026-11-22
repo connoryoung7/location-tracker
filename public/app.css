@@ -34,6 +34,16 @@
   --tone-info: var(--pico-primary);
 
   /*
+   * Colours tuned for WCAG AA (see #37): 4.5:1 for text against the card and
+   * sunken surfaces, 3:1 for form-control borders. Pico's own muted grey and
+   * form border fall short of that, so they are overridden below.
+   */
+  --form-border: #8891a4;
+  --event-entered-color: #15803d;
+  --event-exited-color: #dc2626;
+  --place-color: #7c3aed;
+
+  /*
    * Pico's form controls and spacing are sized for full-width pages; a narrow
    * sidebar reads better a notch denser.
    */
@@ -41,6 +51,27 @@
   --pico-form-element-spacing-vertical: 0.5rem;
   --pico-form-element-spacing-horizontal: 0.75rem;
   --pico-typography-spacing-vertical: var(--space-3);
+}
+
+/* Pico's dark theme applies when no `data-theme` forces light; mirror that condition. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --muted: #8a93a6;
+    --form-border: #646e82;
+    --event-entered-color: #22c55e;
+    --event-exited-color: #f87171;
+    --place-color: #a78bfa;
+  }
+}
+
+/*
+ * Set on `.pico` rather than `:root` so it beats Pico's theme blocks, which use
+ * a more specific `:root:not([data-theme])`. Valid/invalid inputs still set
+ * their own border colour on the element itself, so those states survive.
+ */
+.pico {
+  --pico-muted-color: var(--muted);
+  --pico-form-element-border-color: var(--form-border);
 }
 
 /* `:where(:root)` in Pico has zero specificity, so this wins over its responsive scale. */
@@ -428,6 +459,42 @@ body {
 
 /* ---------- Map chrome ---------- */
 
+/*
+ * MapLibre's controls are outside `.pico` and ship light-only. In dark mode they
+ * take the sidebar's surfaces, and their black SVG icons are inverted to match.
+ */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .maplibregl-ctrl-group {
+    background: var(--surface-raised);
+    box-shadow: 0 0 0 1px var(--border);
+  }
+
+  :root:not([data-theme='light']) .maplibregl-ctrl-group button + button {
+    border-top-color: var(--border);
+  }
+
+  :root:not([data-theme='light']) .maplibregl-ctrl-icon,
+  :root:not([data-theme='light']) .maplibregl-ctrl-attrib-button {
+    filter: invert(1);
+  }
+
+  :root:not([data-theme='light']) .maplibregl-ctrl-attrib,
+  :root:not([data-theme='light']) .maplibregl-ctrl-attrib.maplibregl-compact {
+    background: color-mix(in srgb, var(--surface-raised) 85%, transparent);
+    color: var(--pico-color);
+  }
+
+  :root:not([data-theme='light']) .maplibregl-ctrl-attrib a {
+    color: var(--pico-color);
+  }
+
+  :root:not([data-theme='light']) .maplibregl-ctrl-scale {
+    background: color-mix(in srgb, var(--surface-raised) 75%, transparent);
+    border-color: var(--pico-color);
+    color: var(--pico-color);
+  }
+}
+
 .maplibregl-popup-content {
   padding: var(--space-3) var(--space-4);
   border-radius: var(--radius-md);
@@ -566,13 +633,16 @@ body {
   color: var(--muted);
 }
 
-/* Matches the point colours in `EVENT_COLORS` in app.js. */
+/*
+ * Same hues as the map points in `EVENT_COLORS` in app.js, in shades tuned per
+ * colour scheme so the "Entered"/"Exited" text meets AA contrast.
+ */
 .event-entered {
-  --event-color: #16a34a;
+  --event-color: var(--event-entered-color);
 }
 
 .event-exited {
-  --event-color: #dc2626;
+  --event-color: var(--event-exited-color);
 }
 
 /* One scroll area for all days, so each day's heading can stick while its events scroll by. */
@@ -666,12 +736,6 @@ body {
 }
 
 /* ---------- Places visited ---------- */
-
-/* Matches `PLACE_COLOR` in visited-places.js. Popups sit on the map, outside the panel. */
-.pico #places-panel,
-.pico.popup {
-  --place-color: #7c3aed;
-}
 
 .pico .places-form {
   display: flex;
