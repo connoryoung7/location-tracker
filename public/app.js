@@ -593,7 +593,11 @@ const areaForm = createAreaForm(document, {
     drawRadius = 0;
     map.getCanvas().style.cursor = '';
   },
-  saved: () => window.htmx?.trigger('#areas', 'refresh'),
+  saved: () => {
+    window.htmx?.trigger('#areas', 'refresh');
+    // Events are named after their area's current name, so a rename shows there too.
+    window.htmx?.trigger('#events', 'refresh');
+  },
 });
 
 document.getElementById('draw-form').addEventListener('input', (event) => {
@@ -634,7 +638,9 @@ watchUserScope(document, {
   isDraftOpen: () => areaForm.isOpen(),
   discardDraft: () => areaForm.discard(),
   confirmSwitch: (next) =>
-    confirmDialog.ask(`Switch to ${next || 'no user'}? The area you're drafting will be discarded.`),
+    confirmDialog.ask(
+      `Switch to ${next || 'no user'}? The area you're drafting will be discarded.`,
+    ),
   // Creating an area takes a moment; its completion closes the form, so it has
   // to finish for the current user before anyone else's draft can start.
   isSwitchBlocked: () => areaForm.isSaving(),

@@ -357,6 +357,34 @@ describe('GET /fragments/events', () => {
     expect(readEventsData(html).rows[0].areaLabel).toBe('</script><img src=x onerror=alert(1)>');
   });
 
+  test("names events after the user's areas as they are now, not as stored", async () => {
+    areaEvents.listAreaEvents.mockImplementation(() =>
+      Promise.resolve([{ ...entered, areaName: 'Hom' }]),
+    );
+    areaRepo.listAreas.mockResolvedValueOnce([
+      buildArea({ id: 'home-id', userId: 'AB', name: 'Home' }),
+    ]);
+
+    const html = await fetch(`${baseUrl}/fragments/events?userId=AB`).then((res) => res.text());
+
+    expect(areaRepo.listAreas).toHaveBeenCalledWith('AB');
+    expect(readEventsData(html).rows[0].areaLabel).toBe('Home');
+    expect(html).not.toContain('Hom<');
+  });
+
+  test('still lists events, under their stored names, when the areas cannot be loaded', async () => {
+    areaEvents.listAreaEvents.mockImplementation(() =>
+      Promise.resolve([{ ...entered, areaName: 'Hom' }]),
+    );
+    areaRepo.listAreas.mockRejectedValueOnce(new Error('area store down'));
+
+    const res = await fetch(`${baseUrl}/fragments/events?userId=AB`);
+    const html = await res.text();
+
+    expect(res.status).toBe(200);
+    expect(readEventsData(html).rows[0].areaLabel).toBe('Hom');
+  });
+
   test('prompts for a user and clears the map when none is selected', async () => {
     const html = await fetch(`${baseUrl}/fragments/events?userId=`).then((res) => res.text());
 

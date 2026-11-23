@@ -234,6 +234,33 @@ describe('SyncingAreaRepository', () => {
     expect(await redis.sismember('geofence:inside:AB', 'a1')).toBe(true);
   });
 
+  test('a rename whose index write fails reaches the geofence once the user is repaired', async () => {
+    await repo.addArea(buildArea({ id: 'a1', userId: 'AB', name: 'Hom' }));
+    const flaky: AreaProjection = {
+      applyArea: () => Promise.reject(new Error('redis down')),
+      removeArea: (userId, areaId) => projection.removeArea(userId, areaId),
+      replaceUserAreas: (userId, areas) => projection.replaceUserAreas(userId, areas),
+      replaceAll: (areas) => projection.replaceAll(areas),
+      listAllAreas: () => projection.listAllAreas(),
+      healthCheck: () => projection.healthCheck(),
+    };
+    const syncing = new SyncingAreaRepository(source, flaky, redis, mockLogger());
+
+    expect(await syncing.updateArea(buildArea({ id: 'a1', userId: 'AB', name: 'Home' }))).toBe(
+      true,
+    );
+
+    // Live events would still say "Hom" until the repair runs.
+    expect((await projection.listAllAreas())[0]).toMatchObject({ name: 'Hom' });
+    expect(await redis.smembers('area:projection-dirty')).toEqual(['AB']);
+
+    // The repair re-projects the user from the store with replaceUserAreas.
+    await syncing.listAllAreas();
+
+    expect((await projection.listAllAreas())[0]).toMatchObject({ id: 'a1', name: 'Home' });
+    expect(await redis.smembers('area:projection-dirty')).toEqual([]);
+  });
+
   test('an edit of a missing area touches neither store', async () => {
     const isUpdated = await repo.updateArea(buildArea({ id: 'a1', userId: 'AB' }));
 
