@@ -276,8 +276,15 @@ body {
   text-align: left;
 }
 
+/*
+ * Pico's own button hover (`.pico button:is(:hover, …)`) is more specific than
+ * `.pico .area-locate`, so without these it turns the text white. A light accent
+ * tint keeps the hover visible against the panel while the name and the muted
+ * radius both stay above 4.5:1 in light and dark themes.
+ */
 .pico .area-locate:is(:hover, :focus-visible) {
-  --pico-background-color: var(--surface-sunken);
+  --pico-background-color: color-mix(in srgb, var(--accent) 12%, var(--surface-raised));
+  --pico-color: inherit;
 }
 
 .area-name {
@@ -782,8 +789,14 @@ body {
   text-align: left;
 }
 
+/*
+ * Keep the text colour (see `.area-locate`) but not the accent tint: on any visible
+ * tint, the light theme's Entered/Exited colours drop below 4.5:1. Pico's hover
+ * outline is the hover cue here instead.
+ */
 .pico .event-locate:is(:hover, :focus-visible) {
   --pico-background-color: var(--surface-sunken);
+  --pico-color: inherit;
 }
 
 .event-kind {
@@ -881,8 +894,10 @@ body {
   text-align: left;
 }
 
+/* Same as `.area-locate`: keep the text colour and use the accent tint. */
 .pico .place-locate:is(:hover, :focus-visible) {
-  --pico-background-color: var(--surface-sunken);
+  --pico-background-color: color-mix(in srgb, var(--accent) 12%, var(--surface-raised));
+  --pico-color: inherit;
 }
 
 /* Unidentified places keep a neutral edge so the guesses stand out. */
