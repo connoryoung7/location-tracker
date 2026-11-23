@@ -128,10 +128,15 @@ UI works even when Redis is down.
   lock ingestion and recompute hold: a Postgres advisory lock, or SQLite's write
   lock. So writes reach the store and the index in the same order from every
   process: two edits of one area can't leave Redis on the older circle, and a
-  delete can't be undone by an edit finishing after it. Waiting for the lock is
-  bounded (250 ms on Postgres, SQLite's 1 s busy timeout). An edit that times
-  out, for example during a long recompute, answers `503` and the form keeps the
-  changes.
+  delete can't be undone by an edit finishing after it.
+  - The store write runs inside the lock's transaction (on Postgres it reuses the
+    connection the lock reserved, so lock holders can never exhaust the pool), and
+    commits when the lock is released. If anything fails, the commit included,
+    the user is marked dirty, since Redis may already hold the change.
+  - Waiting for the lock is bounded: 250 ms on Postgres, and 1 s on SQLite, both
+    for the busy timeout and for queueing behind another writer in the same
+    process. An edit that times out, for example during a long recompute, answers
+    `503` and the form keeps the changes.
 - **Repairs check their own work.** A repair runs on reads, which can happen
   while the user's lock is held (recompute reads areas under it), so a repair
   takes no lock. Instead it re-reads the store after rewriting the user's index,

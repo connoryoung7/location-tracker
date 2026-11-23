@@ -1,5 +1,4 @@
-import type { SQL, TransactionSQL } from 'bun';
-import { AsyncLocalStorage } from 'node:async_hooks';
+import type { SQL } from 'bun';
 import type {
   Address,
   GeofenceReplayState,
@@ -8,6 +7,11 @@ import type {
   WaypointPayload,
 } from '@/domain/types.ts';
 import type { GeofenceEvent } from '@/domain/events.ts';
+import {
+  activeTransaction,
+  connectionFor,
+  runInTransaction,
+} from '@/repository/postgres-transaction.ts';
 import type {
   AreaEventRepository,
   LocationRepository,
@@ -23,10 +27,9 @@ export class PostgresLocationRepository
   implements LocationRepository, TrackedUserRepository, AreaEventRepository
 {
   private pool: SQL;
-  private transaction = new AsyncLocalStorage<TransactionSQL>();
 
   private get conn(): SQL {
-    return this.transaction.getStore() ?? this.pool;
+    return connectionFor(this.pool);
   }
 
   readonly replayState = {
@@ -40,13 +43,22 @@ export class PostgresLocationRepository
     },
   };
 
-  async withUserLock<T>(userId: string, work: () => Promise<T>): Promise<T> {
+  /**
+   * Waiting for the lock is already bounded at 250 ms by `lock_timeout`, which is
+   * tighter than any `waitMs` callers pass, so `waitMs` is not needed here.
+   */
+  async withUserLock<T>(
+    userId: string,
+    work: () => Promise<T>,
+    _options?: { waitMs?: number },
+  ): Promise<T> {
     return this.pool.begin(async (tx) => {
-      // The lock and all repository operations use this transaction's connection.
-      // Postgres releases it on commit, rollback, or connection loss.
+      // The lock and every Postgres repository's operations use this transaction's
+      // connection (see runInTransaction). Postgres releases the lock on commit,
+      // rollback, or connection loss.
       await tx`SET LOCAL lock_timeout = '250ms'`;
       await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`geofence:${userId}`}, 0))`;
-      return this.transaction.run(tx, work);
+      return runInTransaction(this.pool, tx, work);
     });
   }
 
@@ -317,7 +329,7 @@ export class PostgresLocationRepository
       }
       return Number(before.count);
     };
-    const transaction = this.transaction.getStore();
+    const transaction = activeTransaction(this.pool);
     return transaction ? transaction.savepoint(replace) : this.pool.begin(replace);
   }
 

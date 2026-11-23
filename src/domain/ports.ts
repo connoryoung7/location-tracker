@@ -24,7 +24,16 @@ export interface ReplayStateRepository {
 }
 
 export interface UserLock {
-  withUserLock<T>(userId: string, work: () => Promise<T>): Promise<T>;
+  /**
+   * Runs `work` holding the user's lock, across processes. `waitMs` caps how
+   * long to wait for the lock before rejecting without running `work`; an
+   * implementation that already bounds the wait more tightly may ignore it.
+   */
+  withUserLock<T>(
+    userId: string,
+    work: () => Promise<T>,
+    options?: { waitMs?: number },
+  ): Promise<T>;
 }
 
 export interface LocationRepository {

@@ -38,12 +38,23 @@ export class SqliteLocationRepository
 
   // SQLite serializes writers database-wide. BEGIN IMMEDIATE also coordinates
   // separate app/ingestion processes; process death rolls back and releases it.
-  async withUserLock<T>(_userId: string, work: () => Promise<T>): Promise<T> {
+  // Within this process, callers queue; `waitMs` bounds that queue wait, which
+  // the busy timeout does not cover, as it only applies to BEGIN.
+  async withUserLock<T>(
+    _userId: string,
+    work: () => Promise<T>,
+    { waitMs }: { waitMs?: number } = {},
+  ): Promise<T> {
     const previous = this.queue;
     let release!: () => void;
     this.queue = new Promise<void>((resolve) => {
       release = resolve;
     });
+    if (waitMs !== undefined && !(await settlesWithin(previous, waitMs))) {
+      // Whoever queued behind this caller still waits for the current holder.
+      void previous.then(release);
+      throw new Error(`Timed out after ${waitMs}ms waiting for the user lock`);
+    }
     await previous;
     try {
       this.db.run('BEGIN IMMEDIATE');
@@ -224,5 +235,18 @@ export class SqliteLocationRepository
 
   async healthCheck(): Promise<void> {
     this.db.prepare('SELECT 1').get();
+  }
+}
+
+/** Whether `promise` settles within `ms`. Never rejects; clears its timer either way. */
+async function settlesWithin(promise: Promise<unknown>, ms: number): Promise<boolean> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timedOut = new Promise<false>((resolve) => {
+    timer = setTimeout(() => resolve(false), ms);
+  });
+  try {
+    return await Promise.race([promise.then(() => true), timedOut]);
+  } finally {
+    clearTimeout(timer);
   }
 }

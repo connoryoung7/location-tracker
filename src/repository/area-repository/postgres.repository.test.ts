@@ -52,4 +52,37 @@ describe.skipIf(!url)('PostgresAreaRepository', () => {
     expect(await repo.updateArea(buildArea({ id: 'a1', userId: 'AB', name: 'Back?' }))).toBe(false);
     expect(await repo.listAllAreas()).toEqual([]);
   });
+
+  test("a write under the user lock reuses the lock's connection, even from a one-connection pool", async () => {
+    const single = new SQL({ url: url!, max: 1 });
+    const lock = new PostgresLocationRepository(single);
+    const areas = new PostgresAreaRepository(single);
+    try {
+      await areas.addArea(buildArea({ id: 'a1', userId: 'AB', radius: 100 }));
+
+      // The lock holds the only connection: a write sent to the pool would wait forever.
+      const isUpdated = await lock.withUserLock('AB', async () =>
+        areas.updateArea(buildArea({ id: 'a1', userId: 'AB', radius: 200 })),
+      );
+
+      expect(isUpdated).toBe(true);
+      expect(await areas.getArea('AB', 'a1')).toMatchObject({ radius: 200 });
+    } finally {
+      await single.close();
+    }
+  });
+
+  test('a write under the user lock commits or rolls back with it', async () => {
+    const lock = new PostgresLocationRepository(sql);
+    await repo.addArea(buildArea({ id: 'a1', userId: 'AB', radius: 100 }));
+
+    await expect(
+      lock.withUserLock('AB', async () => {
+        await repo.updateArea(buildArea({ id: 'a1', userId: 'AB', radius: 200 }));
+        throw new Error('interrupted before commit');
+      }),
+    ).rejects.toThrow('interrupted before commit');
+
+    expect(await repo.getArea('AB', 'a1')).toMatchObject({ radius: 100 });
+  });
 });

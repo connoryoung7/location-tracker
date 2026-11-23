@@ -1,6 +1,7 @@
 import type { SQL } from 'bun';
 import type { Area } from '@/domain/types.ts';
 import type { AreaRepository } from '@/domain/ports.ts';
+import { connectionFor } from '@/repository/postgres-transaction.ts';
 
 type AreaRow = {
   id: string;
@@ -26,10 +27,18 @@ function toArea(row: AreaRow): Area {
 
 /** The record of truth for areas. The Redis index is projected from this. */
 export class PostgresAreaRepository implements AreaRepository {
-  private conn: SQL;
+  private pool: SQL;
 
-  constructor(conn: SQL) {
-    this.conn = conn;
+  constructor(pool: SQL) {
+    this.pool = pool;
+  }
+
+  /**
+   * The user lock's transaction while one is open, so a write made under the
+   * lock reuses its reserved connection and commits with it; the pool otherwise.
+   */
+  private get conn(): SQL {
+    return connectionFor(this.pool);
   }
 
   /**

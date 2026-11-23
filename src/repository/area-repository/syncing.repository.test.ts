@@ -8,7 +8,7 @@ import { SyncingAreaRepository } from '@/repository/area-repository/syncing.repo
 import { SqliteLocationRepository } from '@/repository/location-repository/sqlite.repository.ts';
 import { buildArea } from '@/test/factories.ts';
 import { mockLogger } from '@/test/mocks.ts';
-import type { AreaProjection } from '@/domain/ports.ts';
+import type { AreaProjection, UserLock } from '@/domain/ports.ts';
 import type { Area } from '@/domain/types.ts';
 
 /**
@@ -345,6 +345,39 @@ describe('SyncingAreaRepository', () => {
 
     expect(await source.listAllAreas()).toEqual([]);
     expect(await held.listAllAreas()).toEqual([]);
+  });
+
+  test('a write whose commit fails after the index was updated leaves the user dirty', async () => {
+    await repo.addArea(buildArea({ id: 'a1', userId: 'AB', radius: 100 }));
+    // The store write commits with the lock, after the index already took the edit.
+    const failingCommit: UserLock = {
+      withUserLock: async (_userId, work) => {
+        db.run('BEGIN');
+        await work();
+        db.run('ROLLBACK');
+        throw new Error('database is locked');
+      },
+    };
+    const syncing = new SyncingAreaRepository(
+      source,
+      projection,
+      redis,
+      mockLogger(),
+      failingCommit,
+    );
+
+    await expect(
+      syncing.updateArea(buildArea({ id: 'a1', userId: 'AB', radius: 250 })),
+    ).rejects.toThrow('database is locked');
+
+    expect(await source.getArea('AB', 'a1')).toMatchObject({ radius: 100 });
+    expect(await redis.smembers('area:projection-dirty')).toEqual(['AB']);
+
+    // The next read rebuilds the index from what the store really holds.
+    await syncing.listAreas('AB');
+
+    expect((await projection.listAllAreas())[0]).toMatchObject({ id: 'a1', radius: 100 });
+    expect(await redis.smembers('area:projection-dirty')).toEqual([]);
   });
 
   test('a write landing during a repair keeps the user dirty until a clean repair', async () => {

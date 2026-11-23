@@ -19,6 +19,13 @@ import { areaProjectionDirtyKey } from '@/infrastructure/redis/keys.ts';
  * This mirrors the fan-out shape of `CompositeEventPublisher`: one failing sink
  * must not take down the request.
  */
+/**
+ * Longest an area write waits for the user's lock: SQLite's busy timeout, so a
+ * write fails as fast in-process as across processes. Postgres bounds its own
+ * wait at 250 ms.
+ */
+const USER_LOCK_WAIT_MS = 1_000;
+
 export class SyncingAreaRepository implements AreaRepository {
   private source: AreaRepository;
   private projection: AreaProjection;
@@ -95,7 +102,7 @@ export class SyncingAreaRepository implements AreaRepository {
   }
 
   async addArea(area: Area): Promise<void> {
-    await this.userLock.withUserLock(area.userId, async () => {
+    await this.underUserLock(area.userId, async () => {
       await this.source.addArea(area);
       await this.project(area.userId, () => this.projection.applyArea(area));
     });
@@ -107,7 +114,7 @@ export class SyncingAreaRepository implements AreaRepository {
    * projection always ends on the source's latest state.
    */
   async updateArea(area: Area): Promise<boolean> {
-    return this.userLock.withUserLock(area.userId, async () => {
+    return this.underUserLock(area.userId, async () => {
       if (!(await this.source.updateArea(area))) {
         return false;
       }
@@ -117,7 +124,7 @@ export class SyncingAreaRepository implements AreaRepository {
   }
 
   async removeArea(userId: string, areaId: string): Promise<void> {
-    await this.userLock.withUserLock(userId, async () => {
+    await this.underUserLock(userId, async () => {
       await this.source.removeArea(userId, areaId);
       await this.project(userId, () => this.projection.removeArea(userId, areaId));
     });
@@ -153,6 +160,24 @@ export class SyncingAreaRepository implements AreaRepository {
   async healthCheck(): Promise<void> {
     await this.source.healthCheck();
     await this.projection.healthCheck();
+  }
+
+  /**
+   * Runs one write holding the user's lock, waiting at most
+   * {@link USER_LOCK_WAIT_MS} for it. The source write commits with the lock's
+   * transaction, after `work` has already updated the index, so a failure at
+   * any point, the commit included, can leave the index ahead of the store.
+   * The user is then marked dirty, so the next read rebuilds their index from
+   * what the store really holds. A failure before anything was written only
+   * costs one needless repair.
+   */
+  private async underUserLock<T>(userId: string, work: () => Promise<T>): Promise<T> {
+    try {
+      return await this.userLock.withUserLock(userId, work, { waitMs: USER_LOCK_WAIT_MS });
+    } catch (error) {
+      await this.markDirty(userId);
+      throw error;
+    }
   }
 
   private async project(userId: string, write: () => Promise<void>): Promise<void> {

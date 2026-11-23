@@ -106,6 +106,44 @@ test('SQLite replay state rolls back with events and live writes wait outside re
   }
 });
 
+test('a caller with waitMs gives up waiting in the queue, and the queue still holds', async () => {
+  const db = new Database(':memory:');
+  runMigrations(db);
+  const repo = new SqliteLocationRepository(db);
+  const order: string[] = [];
+  const holding = Promise.withResolvers<void>();
+  try {
+    // A long holder, as a recompute would be.
+    const holder = repo.withUserLock('u', async () => {
+      order.push('holder starts');
+      await holding.promise;
+      order.push('holder ends');
+    });
+    const impatient = repo.withUserLock('u', async () => order.push('impatient runs'), {
+      waitMs: 20,
+    });
+    const patient = repo.withUserLock('u', async () => order.push('patient runs'));
+
+    // Raced against a deadline, so an unbounded wait fails the test instead of hanging it.
+    const outcome = await Promise.race([
+      impatient.then(
+        () => 'ran',
+        (error: Error) => error.message,
+      ),
+      Bun.sleep(1_000).then(() => 'still waiting'),
+    ]);
+    holding.resolve();
+    await Promise.allSettled([holder, impatient, patient]);
+
+    expect(outcome).toBe('Timed out after 20ms waiting for the user lock');
+
+    // The one who gave up never ran, and the one behind it still waited its turn.
+    expect(order).toEqual(['holder starts', 'holder ends', 'patient runs']);
+  } finally {
+    db.close();
+  }
+});
+
 test('SQLite releases its write lock and rolls back replay after a worker is killed', async () => {
   const { mkdtemp, rm } = await import('node:fs/promises');
   const directory = await mkdtemp('/tmp/location-replay-');
