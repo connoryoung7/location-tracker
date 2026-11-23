@@ -2,7 +2,7 @@ import { SQL } from 'bun';
 import { Database } from 'bun:sqlite';
 import type { RedisClient } from 'bun';
 import type { Config } from '@/config.ts';
-import type { AreaRepository, Logger } from '@/domain/ports.ts';
+import type { AreaRepository, Logger, UserLock } from '@/domain/ports.ts';
 import { runMigrations } from '@/infrastructure/persistence/migrate.ts';
 import { PostgresAreaRepository } from '@/repository/area-repository/postgres.repository.ts';
 import { SqliteAreaRepository } from '@/repository/area-repository/sqlite.repository.ts';
@@ -52,16 +52,22 @@ export function createAreaSourceRepository(store: AreaStore): AreaRepository {
  *
  * Call `initialize()` on the result before serving traffic to run the cutover
  * import and rebuild the projection.
+ *
+ * `userLock` must be the location repository over the same `store`: the lock
+ * ingestion and recompute hold, so area writes serialize with them and with
+ * each other across processes.
  */
 export function createAreaRepository(
   store: AreaStore,
   redis: RedisClient,
   logger: Logger,
+  userLock: UserLock,
 ): SyncingAreaRepository {
   return new SyncingAreaRepository(
     createAreaSourceRepository(store),
     new RedisAreaProjection(redis),
     redis,
     logger,
+    userLock,
   );
 }

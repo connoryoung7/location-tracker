@@ -64,7 +64,7 @@ if (config.postgresPassword !== undefined) {
   const repo = new PostgresLocationRepository(sql);
   await repo.migrate();
   // Reuses the connection above rather than opening a second pool.
-  areaRepo = createAreaRepository({ kind: 'postgres', sql }, redis, logger);
+  areaRepo = createAreaRepository({ kind: 'postgres', sql }, redis, logger, repo);
   deps = {
     repo,
     userLock: repo,
@@ -81,7 +81,7 @@ if (config.postgresPassword !== undefined) {
   const db = new Database(config.dbPath, { create: true });
   runMigrations(db);
   const repo = new SqliteLocationRepository(db);
-  areaRepo = createAreaRepository({ kind: 'sqlite', db }, redis, logger);
+  areaRepo = createAreaRepository({ kind: 'sqlite', db }, redis, logger, repo);
   deps = {
     repo,
     userLock: repo,

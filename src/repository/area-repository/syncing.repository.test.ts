@@ -5,9 +5,48 @@ import { runMigrations } from '@/infrastructure/persistence/migrate.ts';
 import { SqliteAreaRepository } from '@/repository/area-repository/sqlite.repository.ts';
 import { RedisAreaProjection } from '@/repository/area-repository/redis.projection.ts';
 import { SyncingAreaRepository } from '@/repository/area-repository/syncing.repository.ts';
+import { SqliteLocationRepository } from '@/repository/location-repository/sqlite.repository.ts';
 import { buildArea } from '@/test/factories.ts';
 import { mockLogger } from '@/test/mocks.ts';
 import type { AreaProjection } from '@/domain/ports.ts';
+import type { Area } from '@/domain/types.ts';
+
+/**
+ * A Redis projection whose next write waits until released, to hold a write
+ * mid-flight between its source and index steps while another one starts.
+ */
+class HeldProjection extends RedisAreaProjection {
+  private gate = Promise.withResolvers<void>();
+  private isNextWriteHeld = false;
+
+  holdNextWrite(): void {
+    this.gate = Promise.withResolvers<void>();
+    this.isNextWriteHeld = true;
+  }
+
+  release(): void {
+    this.gate.resolve();
+  }
+
+  override async applyArea(area: Area): Promise<void> {
+    await this.waitIfHeld();
+    return super.applyArea(area);
+  }
+
+  override async removeArea(userId: string, areaId: string): Promise<void> {
+    await this.waitIfHeld();
+    return super.removeArea(userId, areaId);
+  }
+
+  private async waitIfHeld(): Promise<void> {
+    if (!this.isNextWriteHeld) return;
+    this.isNextWriteHeld = false;
+    await this.gate.promise;
+  }
+}
+
+/** Lets pending promise callbacks and timers run, so a started write reaches its next await. */
+const settle = () => new Promise((resolve) => setTimeout(resolve, 10));
 
 // Defaults to db index 1 so the FLUSHDB below cannot wipe the dev Redis (db 0),
 // which persists real area data via --appendonly.
@@ -18,6 +57,7 @@ describe('SyncingAreaRepository', () => {
   let db: Database;
   let source: SqliteAreaRepository;
   let projection: RedisAreaProjection;
+  let userLock: SqliteLocationRepository;
   let repo: SyncingAreaRepository;
 
   beforeAll(async () => {
@@ -35,7 +75,9 @@ describe('SyncingAreaRepository', () => {
     runMigrations(db);
     source = new SqliteAreaRepository(db);
     projection = new RedisAreaProjection(redis);
-    repo = new SyncingAreaRepository(source, projection, redis, mockLogger());
+    // The location repository over the same database, as every entrypoint wires it.
+    userLock = new SqliteLocationRepository(db);
+    repo = new SyncingAreaRepository(source, projection, redis, mockLogger(), userLock);
   });
 
   test('a write lands in both the store and the Redis index', async () => {
@@ -100,7 +142,7 @@ describe('SyncingAreaRepository', () => {
       listAllAreas: () => projection.listAllAreas(),
       healthCheck: () => projection.healthCheck(),
     };
-    const syncing = new SyncingAreaRepository(source, flaky, redis, logger);
+    const syncing = new SyncingAreaRepository(source, flaky, redis, logger, userLock);
 
     await syncing.addArea(buildArea({ id: 'a1', userId: 'AB' }));
 
@@ -146,7 +188,7 @@ describe('SyncingAreaRepository', () => {
       listAllAreas: () => projection.listAllAreas(),
       healthCheck: () => projection.healthCheck(),
     };
-    const syncing = new SyncingAreaRepository(source, flaky, flakyRedis, mockLogger());
+    const syncing = new SyncingAreaRepository(source, flaky, flakyRedis, mockLogger(), userLock);
 
     await syncing.addArea(buildArea({ id: 'a1', userId: 'AB' }));
     expect(await redis.smembers('area:projection-dirty')).toEqual([]);
@@ -244,7 +286,7 @@ describe('SyncingAreaRepository', () => {
       listAllAreas: () => projection.listAllAreas(),
       healthCheck: () => projection.healthCheck(),
     };
-    const syncing = new SyncingAreaRepository(source, flaky, redis, mockLogger());
+    const syncing = new SyncingAreaRepository(source, flaky, redis, mockLogger(), userLock);
 
     expect(await syncing.updateArea(buildArea({ id: 'a1', userId: 'AB', name: 'Home' }))).toBe(
       true,
@@ -269,24 +311,72 @@ describe('SyncingAreaRepository', () => {
     expect(await projection.listAllAreas()).toEqual([]);
   });
 
-  test('a delete landing between the store and index writes is not undone in the index', async () => {
-    await repo.addArea(buildArea({ id: 'a1', userId: 'AB' }));
-    // A concurrent delete completes, store and index, just after the store update.
-    const racing = Object.create(source) as SqliteAreaRepository;
-    racing.updateArea = (area) => {
-      const isUpdated = source.updateArea(area);
-      source.removeArea(area.userId, area.id);
-      return isUpdated;
-    };
-    await projection.removeArea('AB', 'a1');
-    const racingRepo = new SyncingAreaRepository(racing, projection, redis, mockLogger());
+  test('edits finishing out of order still leave the index on the latest circle', async () => {
+    const held = new HeldProjection(redis);
+    const syncing = new SyncingAreaRepository(source, held, redis, mockLogger(), userLock);
+    await syncing.addArea(buildArea({ id: 'a1', userId: 'AB', radius: 100 }));
 
-    expect(await racingRepo.updateArea(buildArea({ id: 'a1', userId: 'AB', name: 'Gym' }))).toBe(
-      true,
-    );
+    // Edit A stalls between its store and index writes; edit B starts meanwhile.
+    held.holdNextWrite();
+    const editA = syncing.updateArea(buildArea({ id: 'a1', userId: 'AB', radius: 200 }));
+    await settle();
+    const editB = syncing.updateArea(buildArea({ id: 'a1', userId: 'AB', radius: 300 }));
+    await settle();
+    held.release();
+    await Promise.all([editA, editB]);
+
+    expect(await source.getArea('AB', 'a1')).toMatchObject({ radius: 300 });
+    expect((await held.listAllAreas())[0]).toMatchObject({ id: 'a1', radius: 300 });
+    expect(await redis.get('area:maxradius:AB')).toBe('300');
+  });
+
+  test('a delete during an edit is not undone in the index', async () => {
+    const held = new HeldProjection(redis);
+    const syncing = new SyncingAreaRepository(source, held, redis, mockLogger(), userLock);
+    await syncing.addArea(buildArea({ id: 'a1', userId: 'AB' }));
+
+    held.holdNextWrite();
+    const edit = syncing.updateArea(buildArea({ id: 'a1', userId: 'AB', name: 'Gym' }));
+    await settle();
+    const remove = syncing.removeArea('AB', 'a1');
+    await settle();
+    held.release();
+    await Promise.all([edit, remove]);
 
     expect(await source.listAllAreas()).toEqual([]);
-    expect(await projection.listAllAreas()).toEqual([]);
+    expect(await held.listAllAreas()).toEqual([]);
+  });
+
+  test('a write landing during a repair keeps the user dirty until a clean repair', async () => {
+    await repo.addArea(buildArea({ id: 'a1', userId: 'AB', radius: 100 }));
+    await redis.sadd('area:projection-dirty', 'AB');
+    // The repair reads radius 100; an edit to 250 then lands before it writes Redis.
+    let isFirstRepair = true;
+    const racing: AreaProjection = {
+      applyArea: (area) => projection.applyArea(area),
+      removeArea: (userId, areaId) => projection.removeArea(userId, areaId),
+      replaceUserAreas: async (userId, areas) => {
+        if (isFirstRepair) {
+          isFirstRepair = false;
+          await syncing.updateArea(buildArea({ id: 'a1', userId: 'AB', radius: 250 }));
+        }
+        return projection.replaceUserAreas(userId, areas);
+      },
+      replaceAll: (areas) => projection.replaceAll(areas),
+      listAllAreas: () => projection.listAllAreas(),
+      healthCheck: () => projection.healthCheck(),
+    };
+    const syncing = new SyncingAreaRepository(source, racing, redis, mockLogger(), userLock);
+
+    await syncing.listAreas('AB');
+
+    // The repair wrote its older snapshot, so it must not call the user clean.
+    expect(await redis.smembers('area:projection-dirty')).toEqual(['AB']);
+
+    await syncing.listAreas('AB');
+
+    expect((await projection.listAllAreas())[0]).toMatchObject({ id: 'a1', radius: 250 });
+    expect(await redis.smembers('area:projection-dirty')).toEqual([]);
   });
 
   test('healthCheck fails when the index is unreachable', async () => {
@@ -299,6 +389,7 @@ describe('SyncingAreaRepository', () => {
       new RedisAreaProjection(dead),
       redis,
       mockLogger(),
+      userLock,
     );
 
     expect(syncing.healthCheck()).rejects.toThrow();

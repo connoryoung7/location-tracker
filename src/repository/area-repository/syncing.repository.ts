@@ -1,6 +1,6 @@
 import type { RedisClient } from 'bun';
 import type { Area } from '@/domain/types.ts';
-import type { AreaProjection, AreaRepository, Logger } from '@/domain/ports.ts';
+import type { AreaProjection, AreaRepository, Logger, UserLock } from '@/domain/ports.ts';
 import { areaProjectionDirtyKey } from '@/infrastructure/redis/keys.ts';
 
 /**
@@ -10,6 +10,12 @@ import { areaProjectionDirtyKey } from '@/infrastructure/redis/keys.ts';
  * fails is **not** fatal -- the source stays correct and the affected user is
  * marked dirty so the next read repairs them. Reads always come from the source.
  *
+ * Each write holds the user's lock, the one ingestion and recompute hold, from
+ * the source write until the projection write is done. Writes for one user
+ * therefore reach both stores in the same order from every process. Without
+ * it, two edits of one area could land in the source as A then B but in Redis
+ * as B then A, and geofencing would keep using the older circle.
+ *
  * This mirrors the fan-out shape of `CompositeEventPublisher`: one failing sink
  * must not take down the request.
  */
@@ -18,6 +24,7 @@ export class SyncingAreaRepository implements AreaRepository {
   private projection: AreaProjection;
   private redis: RedisClient;
   private logger: Logger;
+  private userLock: UserLock;
   /**
    * Users whose dirty marker could not be stored in Redis (it was unreachable).
    * Kept in-process so repairDrift can still find them once Redis returns.
@@ -29,11 +36,13 @@ export class SyncingAreaRepository implements AreaRepository {
     projection: AreaProjection,
     redis: RedisClient,
     logger: Logger,
+    userLock: UserLock,
   ) {
     this.source = source;
     this.projection = projection;
     this.redis = redis;
     this.logger = logger;
+    this.userLock = userLock;
   }
 
   /**
@@ -86,33 +95,32 @@ export class SyncingAreaRepository implements AreaRepository {
   }
 
   async addArea(area: Area): Promise<void> {
-    await this.source.addArea(area);
-    await this.project(area.userId, () => this.projection.applyArea(area));
+    await this.userLock.withUserLock(area.userId, async () => {
+      await this.source.addArea(area);
+      await this.project(area.userId, () => this.projection.applyArea(area));
+    });
   }
 
   /**
-   * Projects only an update the source actually made. The projection upserts, so
-   * a delete that lands between the two writes would otherwise be undone in the
-   * index: that delete has already cleared it, and applying the edit afterwards
-   * would bring the area back. Re-reading the source after applying catches that
-   * from any process, and drops the area from the index again.
+   * Projects only an update the source actually made. Under the user's lock no
+   * other edit or delete of the area can land between the two writes, so the
+   * projection always ends on the source's latest state.
    */
   async updateArea(area: Area): Promise<boolean> {
-    if (!(await this.source.updateArea(area))) {
-      return false;
-    }
-    await this.project(area.userId, async () => {
-      await this.projection.applyArea(area);
-      if (!(await this.source.getArea(area.userId, area.id))) {
-        await this.projection.removeArea(area.userId, area.id);
+    return this.userLock.withUserLock(area.userId, async () => {
+      if (!(await this.source.updateArea(area))) {
+        return false;
       }
+      await this.project(area.userId, () => this.projection.applyArea(area));
+      return true;
     });
-    return true;
   }
 
   async removeArea(userId: string, areaId: string): Promise<void> {
-    await this.source.removeArea(userId, areaId);
-    await this.project(userId, () => this.projection.removeArea(userId, areaId));
+    await this.userLock.withUserLock(userId, async () => {
+      await this.source.removeArea(userId, areaId);
+      await this.project(userId, () => this.projection.removeArea(userId, areaId));
+    });
   }
 
   async listAreas(userId: string): Promise<Area[]> {
@@ -174,6 +182,12 @@ export class SyncingAreaRepository implements AreaRepository {
    * Re-projects any user whose write failed earlier. Called from reads so the
    * index self-heals without a background process -- the map UI's poll is enough
    * to trigger it. A no-op beyond one SMEMBERS when nothing is dirty.
+   *
+   * Repairs take no lock: recompute reads areas while holding the user's lock,
+   * and that lock is not re-entrant. A write can therefore land between a
+   * repair's read and its projection write and be overwritten by the older
+   * snapshot. So the user stays dirty unless the source, read again afterwards,
+   * still matches what was projected; the next read then repairs from fresh data.
    */
   private async repairDrift(): Promise<void> {
     let redisDirtyUserIds: string[];
@@ -187,7 +201,12 @@ export class SyncingAreaRepository implements AreaRepository {
     const dirtyUserIds = new Set([...redisDirtyUserIds, ...this.localDirtyUserIds]);
     for (const userId of dirtyUserIds) {
       try {
-        await this.projection.replaceUserAreas(userId, await this.source.listAreas(userId));
+        const projected = await this.source.listAreas(userId);
+        await this.projection.replaceUserAreas(userId, projected);
+        if (!isSameProjection(projected, await this.source.listAreas(userId))) {
+          this.logger.info(`Areas for ${userId} changed during repair; repairing again next read`);
+          continue;
+        }
         this.localDirtyUserIds.delete(userId);
         await this.redis.srem(areaProjectionDirtyKey(), userId);
         this.logger.info(`Repaired projected areas for ${userId}`);
@@ -196,4 +215,18 @@ export class SyncingAreaRepository implements AreaRepository {
       }
     }
   }
+}
+
+/**
+ * Whether two reads of a user's areas project the same index: same areas,
+ * names, centres and radii. Categories are not projected, so they are ignored.
+ */
+function isSameProjection(a: Area[], b: Area[]): boolean {
+  const key = (areas: Area[]) =>
+    JSON.stringify(
+      areas
+        .map(({ id, name, lat, lon, radius }) => [id, name, lat, lon, radius])
+        .sort(([idA], [idB]) => String(idA).localeCompare(String(idB))),
+    );
+  return key(a) === key(b);
 }

@@ -6,6 +6,8 @@
  */
 import { loadConfig } from '@/config.ts';
 import { ConsoleLogger } from '@/infrastructure/logging/console.logger.ts';
+import { PostgresLocationRepository } from '@/repository/location-repository/postgres.repository.ts';
+import { SqliteLocationRepository } from '@/repository/location-repository/sqlite.repository.ts';
 import { createRedisClient, waitForRedis } from '@/infrastructure/redis/client.ts';
 import {
   createAreaRepository,
@@ -230,7 +232,12 @@ const seedAreas: Area[] = [
 const config = loadConfig();
 const redis = createRedisClient(config.redisUrl);
 const store = openAreaStore(config);
-const areaRepo = createAreaRepository(store, redis, new ConsoleLogger());
+// The per-user lock ingestion holds, so seeding never races a live write.
+const userLock =
+  store.kind === 'postgres'
+    ? new PostgresLocationRepository(store.sql)
+    : new SqliteLocationRepository(store.db);
+const areaRepo = createAreaRepository(store, redis, new ConsoleLogger(), userLock);
 
 // The client fails commands fast rather than queueing them while disconnected,
 // which suits the long-running servers but means a short script has to wait for

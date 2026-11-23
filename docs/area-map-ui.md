@@ -122,8 +122,21 @@ UI works even when Redis is down.
 - **Edits never resurrect.** `updateArea` is a single `UPDATE … WHERE id AND
   user_id` that reports whether a row changed, so an edit racing a delete cannot
   re-insert the area the way the `addArea` upsert would. Only a successful update
-  is projected, and the store is re-read afterwards: if a delete landed between
-  the two writes, the area is dropped from the index again.
+  is projected.
+- **Writes are serialized per user.** Every create, edit, and delete holds the
+  user's lock from its store write until its index write is done. It is the same
+  lock ingestion and recompute hold: a Postgres advisory lock, or SQLite's write
+  lock. So writes reach the store and the index in the same order from every
+  process: two edits of one area can't leave Redis on the older circle, and a
+  delete can't be undone by an edit finishing after it. Waiting for the lock is
+  bounded (250 ms on Postgres, SQLite's 1 s busy timeout). An edit that times
+  out, for example during a long recompute, answers `503` and the form keeps the
+  changes.
+- **Repairs check their own work.** A repair runs on reads, which can happen
+  while the user's lock is held (recompute reads areas under it), so a repair
+  takes no lock. Instead it re-reads the store after rewriting the user's index,
+  and leaves the user dirty if a write landed in between, so the next read
+  repairs again from fresh data.
 
 ### The one-time cutover
 

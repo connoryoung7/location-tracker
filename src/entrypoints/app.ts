@@ -21,12 +21,13 @@ const metrics = new PrometheusMetricsCollector();
 
 const redis = createRedisClient(config.redisUrl);
 const store = openAreaStore(config);
-const areaRepo = createAreaRepository(store, redis, logger);
 const repo =
   store.kind === 'postgres'
     ? new PostgresLocationRepository(store.sql)
     : new SqliteLocationRepository(store.db);
 if (repo instanceof PostgresLocationRepository) await repo.migrate();
+// Area writes hold the same per-user lock as ingestion and recompute.
+const areaRepo = createAreaRepository(store, redis, logger, repo);
 
 // Shared across requests so the cache outlives a single run.
 const placeFinder = config.overpassUrl
