@@ -262,9 +262,13 @@ What an edit does to events:
   geofence index keeps who is inside the area, so someone still inside the moved
   circle sees no event, someone it no longer covers gets the usual exit, and
   someone it now covers gets an enter.
-- **Past events are unchanged.** They keep the name and circle the area had when
-  they happened. Recompute events rebuilds them from the current areas if you
-  want history to follow the edit.
+- **Past events show the new name** in Recent events and on the map, because
+  events are always labelled with their area's current name (see
+  [Named after the area as it is now](#named-after-the-area-as-it-is-now)).
+  Saving an edit refreshes Recent events straight away.
+- **Past events are never rewritten.** Each keeps the name it was stored with
+  and the circle it was worked out against. Recompute events rebuilds them from
+  the current areas if you want history to follow a moved circle.
 
 ## Security
 
@@ -309,6 +313,18 @@ The panel reloads when the page-wide user changes, after a successful recompute,
 and on the 30-second poll. Polls never move the view; see
 [Selecting a user](#selecting-a-user) for how a newly selected user is framed. Click a list row to fly to
 that event, or a point to see its area and time.
+
+### Named after the area as it is now
+
+Each event is labelled with its area's **current** name, looked up by area ID in
+the selected user's areas, so renaming "Hom" to "Home" relabels the area's whole
+history. Nothing is rewritten: `area_events.area_name` keeps the name the area
+had when the event happened, and is shown only when the area has since been
+deleted, falling back to the area ID for events stored with no name. If the areas
+can't be loaded, the events are still listed, under their stored names.
+
+Push notifications are sent as each event happens, so they carry the name the
+area had at that moment.
 
 ### Grouped by day
 

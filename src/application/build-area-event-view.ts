@@ -1,4 +1,5 @@
 import type { GeofenceEvent } from '@/domain/events.ts';
+import type { Area } from '@/domain/types.ts';
 
 /** How an event is labelled in the list and the map popup. */
 export type AreaEventKind = 'entered' | 'exited';
@@ -58,6 +59,12 @@ export type AreaEventViewOptions = {
   timeZone?: string;
   /** "Now", for deciding which day is Today. Defaults to the current time. */
   now?: Date;
+  /**
+   * The user's current areas. An event is labelled with its area's current
+   * name, so a rename shows across the whole history; the name stored with
+   * the event is used only when its area is gone (or these weren't loaded).
+   */
+  areas?: Area[];
 };
 
 /** Fixed so labels do not depend on the server's locale. */
@@ -107,11 +114,13 @@ export function buildAreaEventView(
     minute: '2-digit',
   });
 
+  const currentNames = new Map((options.areas ?? []).map((area) => [area.id, area.name]));
+
   const rows = events.map(
     (event): AreaEventListRow => ({
       kind: KIND_BY_TYPE[event._type],
       areaId: event.areaId,
-      areaLabel: event.areaName ?? event.areaId,
+      areaLabel: currentNames.get(event.areaId) ?? event.areaName ?? event.areaId,
       lat: event.lat,
       lon: event.lon,
       tst: event.tst,

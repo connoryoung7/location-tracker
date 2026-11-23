@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { buildAreaEventView, resolveTimeZone } from '@/application/build-area-event-view.ts';
 import type { GeofenceEvent } from '@/domain/events.ts';
+import { buildArea } from '@/test/factories.ts';
 
 const entered: GeofenceEvent = {
   _type: 'area.entered',
@@ -40,6 +41,25 @@ describe('buildAreaEventView', () => {
       coordinates: [-71.06, 42.36],
     });
     expect(view.featureCollection.features[0]!.properties).toEqual(view.rows[0]!);
+  });
+
+  test("labels events with their area's current name, so a rename shows across history", () => {
+    const view = buildAreaEventView('u', [entered, { ...entered, areaName: 'Hom' }], {
+      areas: [buildArea({ id: 'home-id', userId: 'u', name: 'Home sweet home' })],
+    });
+
+    expect(view.rows.map((row) => row.areaLabel)).toEqual(['Home sweet home', 'Home sweet home']);
+    // The map points carry the same label as the list.
+    expect(view.featureCollection.features[0]!.properties.areaLabel).toBe('Home sweet home');
+  });
+
+  test('an event whose area was deleted keeps the name stored with it, then its ID', () => {
+    const { areaName: _areaName, ...unnamed } = entered;
+    const view = buildAreaEventView('u', [entered, unnamed], {
+      areas: [buildArea({ id: 'other', userId: 'u', name: 'Work' })],
+    });
+
+    expect(view.rows.map((row) => row.areaLabel)).toEqual(['Home', 'home-id']);
   });
 
   test('labels an event with its area ID when no name was recorded', () => {

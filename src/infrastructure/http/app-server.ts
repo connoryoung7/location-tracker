@@ -933,9 +933,19 @@ export function createAppServer(deps: AppDeps) {
 
     const { userId } = user;
     try {
-      const events = await deps.areaEvents.listAreaEvents(userId, { limit: EVENT_LIST_LIMIT });
+      const [events, areas] = await Promise.all([
+        deps.areaEvents.listAreaEvents(userId, { limit: EVENT_LIST_LIMIT }),
+        // Only for naming events after their areas' current names. Without them
+        // the events still show, under the names they were stored with.
+        deps.areaRepo.listAreas(userId).catch((error: unknown) => {
+          deps.logger.warn('Failed to load areas for naming events; using stored names', error);
+          return undefined;
+        }),
+      ]);
       const timeZone = typeof req.query.tz === 'string' ? req.query.tz : undefined;
-      res.type('html').send(renderEventsFragment(buildAreaEventView(userId, events, { timeZone })));
+      res
+        .type('html')
+        .send(renderEventsFragment(buildAreaEventView(userId, events, { timeZone, areas })));
     } catch (error) {
       deps.logger.error('Failed to load events', error);
       res.status(503).type('html').send(renderEventsError());
