@@ -271,16 +271,15 @@ function readSwappedEvents() {
 document.getElementById('user-scope-tz').value = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
 // The timeline's day defaults to today in the viewer's own calendar, not UTC's.
+// No `max`: set once, it would go stale on a page left open past midnight and
+// block today; a future day simply has no locations.
 {
   const now = new Date();
-  const today = [
+  document.getElementById('timeline-date').value = [
     now.getFullYear(),
     String(now.getMonth() + 1).padStart(2, '0'),
     String(now.getDate()).padStart(2, '0'),
   ].join('-');
-  const timelineDate = document.getElementById('timeline-date');
-  timelineDate.value = today;
-  timelineDate.max = today;
 }
 
 document.getElementById('events').addEventListener('click', (event) => {
