@@ -1,5 +1,7 @@
 import { test, expect, describe, beforeAll, afterAll, beforeEach, mock } from 'bun:test';
 import { createAppServer, type AppDeps } from '@/infrastructure/http/app-server.ts';
+import type { DayTimeline, TimelineStop, TimelineTrip } from '@/application/build-day-timeline.ts';
+import { zonedDayRange } from '@/application/zoned-day.ts';
 import { ConsoleLogger } from '@/infrastructure/logging/console.logger.ts';
 import { PrometheusMetricsCollector } from '@/infrastructure/metrics/prometheus.metrics.ts';
 import {
@@ -22,6 +24,17 @@ let areaCategories: ReturnType<typeof mockAreaCategoryRepository>;
 const visitedPlaces = mock(
   async (_userId: string, _range: { from?: number }): Promise<VisitedPlace[]> => [],
 );
+const emptyDay = (userId: string, date: string, timeZone: string): DayTimeline => ({
+  userId,
+  date,
+  timeZone,
+  day: zonedDayRange(date, timeZone),
+  entries: [],
+});
+const dayTimeline = mock(
+  async (userId: string, day: { date: string; timeZone: string }): Promise<DayTimeline> =>
+    emptyDay(userId, day.date, day.timeZone),
+);
 
 beforeAll(async () => {
   areaRepo = mockAreaRepository();
@@ -35,6 +48,7 @@ beforeAll(async () => {
     users: { listUserIds: async () => ['AB', 'CD'] },
     recompute: async () => ({ locations: 10, before: 2, after: 4 }),
     visitedPlaces,
+    dayTimeline,
     logger: new ConsoleLogger(),
     metrics: new PrometheusMetricsCollector(),
   };
@@ -74,6 +88,8 @@ beforeEach(() => {
   areaEvents.listAreaEvents.mockImplementation(() => Promise.resolve([]));
   visitedPlaces.mockReset();
   visitedPlaces.mockImplementation(async () => []);
+  dayTimeline.mockReset();
+  dayTimeline.mockImplementation(async (userId, day) => emptyDay(userId, day.date, day.timeZone));
 });
 
 describe('GET /', () => {
@@ -402,6 +418,147 @@ describe('GET /fragments/events', () => {
     expect(res.status).toBe(503);
     expect(html).toContain('Could not load events');
     expect(html).not.toContain('events-data');
+  });
+});
+
+describe('GET /fragments/timeline', () => {
+  const DAY = zonedDayRange('2026-11-22', 'America/New_York');
+  const HOME = { lat: 42.3467, lon: -71.0972 };
+  const MARKET = { lat: 42.3603, lon: -71.0554 };
+  const home: TimelineStop = {
+    kind: 'stop',
+    label: 'Home',
+    category: 'Saved area',
+    isFromOpenStreetMap: false,
+    ...HOME,
+    arrivedAt: DAY.from - 6 * 3600,
+    departedAt: DAY.from + 9 * 3600,
+  };
+  const toMarket: TimelineTrip = {
+    kind: 'trip',
+    startedAt: DAY.from + 9 * 3600,
+    endedAt: DAY.from + 9 * 3600 + 23 * 60,
+    path: [
+      { ...HOME, tst: DAY.from + 9 * 3600 },
+      { ...MARKET, tst: DAY.from + 9 * 3600 + 23 * 60 },
+    ],
+    distanceMeters: 3_240,
+    isPathEstimated: false,
+    isOngoing: false,
+    fromLabel: 'Home',
+    toLabel: 'Fresh Market',
+  };
+  const market: TimelineStop = {
+    kind: 'stop',
+    label: 'Fresh Market',
+    category: 'Grocery store',
+    isFromOpenStreetMap: true,
+    ...MARKET,
+    arrivedAt: DAY.from + 9 * 3600 + 23 * 60,
+    departedAt: DAY.from + 10 * 3600 + 33 * 60,
+  };
+  const timelineDay = (entries: DayTimeline['entries']): DayTimeline => ({
+    userId: 'AB',
+    date: '2026-11-22',
+    timeZone: 'America/New_York',
+    day: DAY,
+    entries,
+  });
+  const readTimelineData = (html: string) =>
+    JSON.parse(
+      html.match(/<script type="application\/json" id="timeline-data">(.*?)<\/script>/s)![1]!,
+    );
+
+  test('the page has a timeline form that loads the fragment on request', async () => {
+    const html = await fetch(`${baseUrl}/`).then((res) => res.text());
+
+    expect(html).toContain('id="timeline-form"');
+    expect(html).toContain('hx-get="/fragments/timeline"');
+    expect(html).toContain('<input type="date" name="date" id="timeline-date" required />');
+  });
+
+  test("lists the day's stops and trips in the viewer's zone and embeds them for the map", async () => {
+    dayTimeline.mockImplementation(async () => timelineDay([home, toMarket, market]));
+
+    const res = await fetch(
+      `${baseUrl}/fragments/timeline?userId=AB&date=2026-11-22&tz=America%2FNew_York`,
+    );
+    const html = await res.text();
+
+    expect(res.status).toBe(200);
+    expect(dayTimeline).toHaveBeenCalledWith('AB', {
+      date: '2026-11-22',
+      timeZone: 'America/New_York',
+    });
+    expect(html).toContain('Sunday, November 22, 2026');
+    expect(html).toContain('<span class="timeline-time">Until 9:00 AM</span>');
+    expect(html).toContain('<span class="timeline-label">Home → Fresh Market</span>');
+    expect(html).toContain('<span class="timeline-detail">23 min · 3.2 km</span>');
+    expect(html).toContain('id="timeline-scrubber"');
+    expect(html).toContain('openstreetmap.org/copyright');
+    const view = readTimelineData(html);
+    expect(view.userId).toBe('AB');
+    expect(view.rows).toHaveLength(3);
+    expect(view.featureCollection.features).toHaveLength(3);
+  });
+
+  test('an unknown time zone falls back to UTC', async () => {
+    await fetch(`${baseUrl}/fragments/timeline?userId=AB&date=2026-11-22&tz=Mars%2FOlympus`);
+
+    expect(dayTimeline).toHaveBeenCalledWith('AB', { date: '2026-11-22', timeZone: 'UTC' });
+  });
+
+  test('says so when the day has no locations, still clearing the map', async () => {
+    const html = await fetch(`${baseUrl}/fragments/timeline?userId=AB&date=2026-11-22`).then(
+      (res) => res.text(),
+    );
+
+    expect(html).toContain('No locations on this day.');
+    expect(html).not.toContain('timeline-scrubber');
+    expect(readTimelineData(html).rows).toEqual([]);
+  });
+
+  test('rejects a missing user or a day that is not a real date', async () => {
+    const noUser = await fetch(`${baseUrl}/fragments/timeline?userId=&date=2026-11-22`);
+    const badDate = await fetch(`${baseUrl}/fragments/timeline?userId=AB&date=2026-02-30`);
+    const noDate = await fetch(`${baseUrl}/fragments/timeline?userId=AB`);
+
+    expect(noUser.status).toBe(422);
+    expect(await noUser.text()).toContain('Select a user');
+    expect(badDate.status).toBe(422);
+    expect(await badDate.text()).toContain('Choose a day');
+    expect(noDate.status).toBe(422);
+    expect(dayTimeline).not.toHaveBeenCalled();
+  });
+
+  test('escapes place names in the list and the embedded JSON', async () => {
+    const hostile = '</script><img src=x onerror=alert(1)>';
+    dayTimeline.mockImplementation(async () =>
+      timelineDay([
+        { ...home, label: hostile },
+        { ...toMarket, fromLabel: hostile },
+      ]),
+    );
+
+    const html = await fetch(`${baseUrl}/fragments/timeline?userId=AB&date=2026-11-22`).then(
+      (res) => res.text(),
+    );
+
+    expect(html).not.toContain('<img');
+    expect(readTimelineData(html).rows[0].label).toBe(hostile);
+  });
+
+  test('shows a retry message without map data when the timeline fails', async () => {
+    dayTimeline.mockImplementation(async () => {
+      throw new Error('db down');
+    });
+
+    const res = await fetch(`${baseUrl}/fragments/timeline?userId=AB&date=2026-11-22`);
+    const html = await res.text();
+
+    expect(res.status).toBe(503);
+    expect(html).toContain('Could not build the timeline');
+    expect(html).not.toContain('timeline-data');
   });
 });
 

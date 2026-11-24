@@ -241,8 +241,8 @@ test('syncUserActions disables every user action until a user is selected', () =
     [
       ...document.querySelectorAll('[data-user-submit], #draw-start'),
     ] as unknown as HTMLButtonElement[];
-  // Review area, Recompute events, Find places, List areas, and Add area.
-  expect(actions()).toHaveLength(5);
+  // Review area, Recompute events, Find places, Show day, List areas, and Add area.
+  expect(actions()).toHaveLength(6);
 
   syncUserActions(document, 'AB');
   for (const button of actions()) expect(button.disabled).toBe(false);
@@ -455,6 +455,7 @@ describe('responseUserId', () => {
     expect(responseUserId(block('areas-data', '{"userId":"AB","bounds":[1,2,3,4]}'))).toBe('AB');
     expect(responseUserId(block('events-data', '{"userId":"CD"}'))).toBe('CD');
     expect(responseUserId(block('places-data', '{"userId":"EF"}'))).toBe('EF');
+    expect(responseUserId(block('timeline-data', '{"userId":"GH"}'))).toBe('GH');
   });
 
   test('a prompt shown before anyone is selected is for no user', () => {

@@ -143,7 +143,7 @@ export function syncUserActions(root, userId) {
 
 /** The data blocks fragments carry for the map, each naming the user it is for. */
 const DATA_BLOCK =
-  /<script type="application\/json" id="(?:areas|events|places)-data">([\s\S]*?)<\/script>/;
+  /<script type="application\/json" id="(?:areas|events|places|timeline)-data">([\s\S]*?)<\/script>/;
 
 /**
  * The user a fragment says it is for, read from its data block. `''` for a

@@ -33,6 +33,7 @@ config schema up front. The map UI never uses the key itself.
 | `GET /fragments/area-list?userId=`  | HTMX fragment — a user's areas as a table for the modal    |
 | `GET /fragments/events?userId=`     | HTMX fragment — a user's latest area events plus points    |
 | `GET /fragments/places?userId=`     | HTMX fragment — places a user stopped at; see below        |
+| `GET /fragments/timeline?userId=`   | HTMX fragment — one day's stops, trips and routes          |
 | `POST /areas`                       | Create an area; the server assigns its `id`                |
 | `PUT /areas/:userId/:areaId`        | Change an area's name and circle; see below                |
 | `PATCH /areas/:userId/:areaId`      | Put an area in a category, or take it out                  |
@@ -349,6 +350,14 @@ more and names each spot from their areas or from nearby OpenStreetMap places.
 Changing the user clears its results. Any place that is not yet an area offers
 **Save as area** in its list row and its map popup, which opens a pre-filled
 draft in the New area form for review. See [visited-places.md](visited-places.md).
+
+## Day timeline
+
+The Day timeline panel shows one of the selected user's days, today by default:
+each stop, named as in Places visited, and the trips between them, with each
+trip's route drawn on the map (dashed when it is a straight-line guess). Click a
+row to frame it, or drag **Play back the day** to move a marker through the day.
+Changing the user clears it. See [day-timeline.md](day-timeline.md).
 
 ## Recomputing event history
 

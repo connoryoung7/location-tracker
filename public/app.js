@@ -12,6 +12,7 @@ import {
   watchUserScope,
 } from '/static/user-scope.js';
 import { attachVisitedPlaces, PLACES_LAYER_ID } from '/static/visited-places.js';
+import { attachDayTimeline } from '/static/day-timeline.js';
 // maplibre-gl v6 ships named ESM exports only — there is no default export.
 import {
   MapLibreMap,
@@ -193,6 +194,9 @@ const visitedPlaces = attachVisitedPlaces(map, {
   },
 });
 
+// Registered after the places layer, so a day's routes and stops draw on top.
+const dayTimeline = attachDayTimeline(map, { Marker });
+
 function formatEventTime(isoTime) {
   return new Date(isoTime).toLocaleString();
 }
@@ -265,6 +269,19 @@ function readSwappedEvents() {
 // The server groups events into days; send the viewer's zone so they are the viewer's days.
 // Runs before htmx's `load` trigger: module scripts execute before DOMContentLoaded.
 document.getElementById('user-scope-tz').value = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+// The timeline's day defaults to today in the viewer's own calendar, not UTC's.
+{
+  const now = new Date();
+  const today = [
+    now.getFullYear(),
+    String(now.getMonth() + 1).padStart(2, '0'),
+    String(now.getDate()).padStart(2, '0'),
+  ].join('-');
+  const timelineDate = document.getElementById('timeline-date');
+  timelineDate.value = today;
+  timelineDate.max = today;
+}
 
 document.getElementById('events').addEventListener('click', (event) => {
   const button = event.target.closest('.event-locate');
@@ -670,6 +687,8 @@ watchUserScope(document, {
     // when it answers; cancel it now so its button is free for the new user.
     window.htmx?.trigger('#places-form', 'htmx:abort');
     visitedPlaces.clear();
+    window.htmx?.trigger('#timeline-form', 'htmx:abort');
+    dayTimeline.clear();
     showNotice('recompute-result', 'info', '');
   },
 });

@@ -1,5 +1,6 @@
 import { PostgresLocationRepository } from '@/repository/location-repository/postgres.repository.ts';
 import { SqliteLocationRepository } from '@/repository/location-repository/sqlite.repository.ts';
+import { buildDayTimeline } from '@/application/build-day-timeline.ts';
 import { inferVisitedPlaces } from '@/application/infer-visited-places.ts';
 import { recomputeAreaEvents } from '@/application/recompute-area-events.ts';
 import { loadConfig } from '@/config.ts';
@@ -69,6 +70,8 @@ const app = createAppServer({
     }),
   visitedPlaces: (userId, range) =>
     inferVisitedPlaces(userId, { repo, areaRepo, placeFinder, logger }, { range }),
+  dayTimeline: (userId, day) =>
+    buildDayTimeline(userId, { repo, areaRepo, placeFinder, logger }, day),
 });
 
 app.listen(config.appPort, () => {
