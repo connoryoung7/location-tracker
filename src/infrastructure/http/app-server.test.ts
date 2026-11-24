@@ -495,7 +495,8 @@ describe('GET /fragments/timeline', () => {
     expect(html).toContain('<span class="timeline-time">Until 9:00 AM</span>');
     expect(html).toContain('<span class="timeline-label">Home → Fresh Market</span>');
     expect(html).toContain('<span class="timeline-detail">23 min · 3.2 km</span>');
-    expect(html).toContain('id="timeline-scrubber"');
+    // Seconds, so a short trip can be played and the last fix reached.
+    expect(html).toMatch(/id="timeline-scrubber"[^>]* step="1"/);
     expect(html).toContain('openstreetmap.org/copyright');
     const view = readTimelineData(html);
     expect(view.userId).toBe('AB');

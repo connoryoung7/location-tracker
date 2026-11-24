@@ -217,6 +217,27 @@ describe('buildDayTimeline', () => {
     expect(findNearbyPlaces).toHaveBeenCalledTimes(1);
   });
 
+  test('a date the zone skipped is empty, even with a stay spanning the jump', async () => {
+    // Samoa jumped from 2011-12-29 straight to 2011-12-31, at 10:00 UTC on the 30th.
+    const jump = Date.UTC(2011, 11, 30, 10) / 1000;
+    const listLocations = mock(async function* () {
+      yield* stay(HOME, jump - HOUR, 2 * 60, 10);
+    });
+    const deps = {
+      repo: { listLocations },
+      areaRepo: { listAreas: async () => [] },
+      logger: mockLogger(),
+    };
+
+    const timeline = await buildDayTimeline('AB', deps, {
+      date: '2011-12-30',
+      timeZone: 'Pacific/Apia',
+    });
+
+    expect(timeline.entries).toEqual([]);
+    expect(listLocations).not.toHaveBeenCalled();
+  });
+
   test('reads only the day, with 12 hours before it and 2 after', async () => {
     const { build, listLocations } = setup([]);
 

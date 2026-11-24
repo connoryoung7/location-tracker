@@ -50,6 +50,14 @@ describe('zonedDayRange', () => {
     expect(zonedDayRange('2021-10-28', 'Asia/Amman').to).toBe(from);
   });
 
+  test('a day whose clocks roll back into the day before still starts at its first midnight', () => {
+    // Casey went from UTC+11 to UTC+8 at 02:00 on 2010-03-05, back to 23:00 on the 4th.
+    const { from } = zonedDayRange('2010-03-05', 'Antarctica/Casey');
+
+    expect(iso(from)).toBe('2010-03-04T13:00:00.000Z');
+    expect(zonedDayRange('2010-03-04', 'Antarctica/Casey').to).toBe(from);
+  });
+
   test('a zone that skips a whole day keeps the days around it whole', () => {
     // Samoa crossed the date line: 2011-12-29 ended, and 2011-12-31 began.
     const before = zonedDayRange('2011-12-29', 'Pacific/Apia');

@@ -89,6 +89,10 @@ export async function buildDayTimeline(
   options: { visitDetection?: Partial<VisitDetectionOptions> } = {},
 ): Promise<DayTimeline> {
   const day = zonedDayRange(date, timeZone);
+  // A date the zone skipped never happened there, so nothing happened on it.
+  if (day.to <= day.from) {
+    return { userId, date, timeZone, day, entries: [] };
+  }
 
   // One day is at most a few thousand fixes, so they are held in memory: read
   // once, then used both to find stops and to trace the trips between them.

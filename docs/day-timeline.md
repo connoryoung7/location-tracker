@@ -3,7 +3,8 @@
 The **Day timeline** panel in the map UI shows one of a user's days: where they
 stopped, the trips between those stops, and each trip's route on the map. Pick a
 day (today by default) and choose **Show day**. Click a row to frame that stop or
-trip on the map, or drag **Play back the day** to move a marker through the day.
+trip on the map, or drag **Play back the day** to move a marker through the day,
+second by second.
 
 It answers the design questions in issue #26. Like Places visited, it runs only
 on request: each run reads one day of locations, and may look places up online.
@@ -51,9 +52,9 @@ A trip is the movement from one stop's departure to the next stop's arrival.
 A day is a calendar day in the viewer's time zone, sent by the browser, so it is
 23 or 25 hours long on a daylight-saving change. Where clocks jump forward at
 midnight itself (Havana, for one), 00:00 never happens and the day starts at the
-jump; where they fall back across midnight (Amman in 2021), 00:00 happens twice
-and the day starts at the first. A date a zone skipped altogether (Samoa's
-2011-12-30) is an empty day. Locations are read from 12 hours
+jump; where they fall back across midnight (Amman in 2021), or even back into
+the day before (Casey in 2010), 00:00 happens twice and the day starts at the
+first. A date a zone skipped altogether (Samoa's 2011-12-30) is an empty day. Locations are read from 12 hours
 before the day to 2 hours after it, so a stay that began the evening before (home
 overnight) is found whole, and the day's last stop can see when it ended. Stops
 are clipped to the day ("Until 7:42 AM", "From 10:00 PM", "All day"); a trip

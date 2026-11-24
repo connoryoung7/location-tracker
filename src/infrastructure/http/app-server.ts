@@ -544,7 +544,7 @@ function renderTimelineFragment(view: DayTimelineView): string {
       ? `
     <div class="timeline-playback">
       <label for="timeline-scrubber">Play back the day</label>
-      <input type="range" id="timeline-scrubber" min="${first}" max="${last}" step="60" value="${first}" />
+      <input type="range" id="timeline-scrubber" min="${first}" max="${last}" step="1" value="${first}" />
       <p id="timeline-caption" class="timeline-caption" aria-live="polite"></p>
     </div>`
       : '';
