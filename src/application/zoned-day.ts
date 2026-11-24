@@ -62,19 +62,28 @@ function zonedMidnight(year: number, month: number, day: number, timeZone: strin
   if (isFirstSecond) return midnight;
 
   // Midnight was skipped, or this is its second occurrence. Either way the day
-  // starts at the first second whose local date is `dateKey`; find it by halving.
-  let before = midnight - MAX_GAP_MS;
-  let after = midnight + MAX_GAP_MS;
+  // starts at the first second whose local date is `dateKey`. Widen the window
+  // until it straddles that second (a zone can skip a whole day, as Samoa did
+  // on 2011-12-30), then find it by halving.
+  const isOnOrAfter = (instant: number) => localDateKey(instant, timeZone) >= dateKey;
+  let span = SEARCH_SPAN_MS;
+  while (isOnOrAfter(midnight - span) && span < MAX_SEARCH_SPAN_MS) span *= 2;
+  let before = midnight - span;
+  span = SEARCH_SPAN_MS;
+  while (!isOnOrAfter(midnight + span) && span < MAX_SEARCH_SPAN_MS) span *= 2;
+  let after = midnight + span;
   while (after - before > 1000) {
     const middle = before + Math.floor((after - before) / 2000) * 1000;
-    if (localDateKey(middle, timeZone) >= dateKey) after = middle;
+    if (isOnOrAfter(middle)) after = middle;
     else before = middle;
   }
   return after;
 }
 
-/** Longer than any daylight-saving jump, which is at most an hour or two. */
-const MAX_GAP_MS = 6 * 3600 * 1000;
+/** Where the search for a day's first second starts: wider than any daylight-saving jump. */
+const SEARCH_SPAN_MS = 6 * 3600 * 1000;
+/** Far wider than any jump a zone has ever made, so a bad zone cannot loop forever. */
+const MAX_SEARCH_SPAN_MS = 64 * 24 * 3600 * 1000;
 
 /** The `YYYY-MM-DD` date the wall clock in `timeZone` shows at `instantMs`. */
 function localDateKey(instantMs: number, timeZone: string): string {

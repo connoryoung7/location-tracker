@@ -50,6 +50,20 @@ describe('zonedDayRange', () => {
     expect(zonedDayRange('2021-10-28', 'Asia/Amman').to).toBe(from);
   });
 
+  test('a zone that skips a whole day keeps the days around it whole', () => {
+    // Samoa crossed the date line: 2011-12-29 ended, and 2011-12-31 began.
+    const before = zonedDayRange('2011-12-29', 'Pacific/Apia');
+    const skipped = zonedDayRange('2011-12-30', 'Pacific/Apia');
+    const after = zonedDayRange('2011-12-31', 'Pacific/Apia');
+
+    expect(iso(before.from)).toBe('2011-12-29T10:00:00.000Z');
+    expect(iso(before.to)).toBe('2011-12-30T10:00:00.000Z');
+    // A date that never happened there is empty, not a stray slice of its neighbours.
+    expect(skipped.to - skipped.from).toBe(0);
+    expect(after.from).toBe(before.to);
+    expect(after.to - after.from).toBe(24 * 3600);
+  });
+
   test('works for zones ahead of UTC and with half-hour offsets', () => {
     expect(iso(zonedDayRange('2026-11-22', 'Asia/Kolkata').from)).toBe('2026-11-21T18:30:00.000Z');
     expect(iso(zonedDayRange('2026-11-22', 'UTC').from)).toBe('2026-11-22T00:00:00.000Z');
