@@ -1,19 +1,12 @@
 import type { RedisClient } from 'bun';
 import type { Area } from '@/domain/types.ts';
-import type { AreaProjection, AreaRepository, Logger, UserLock } from '@/domain/ports.ts';
+import type { AreaProjection, AreaRepository, Logger } from '@/domain/ports.ts';
 import { areaProjectionDirtyKey } from '@/infrastructure/redis/keys.ts';
+import { AreaLockBusyError, RedisAreaLock } from '@/repository/area-repository/redis.area-lock.ts';
 
-/**
- * Longest an area write waits for the user's lock: SQLite's busy timeout, so a
- * write fails as fast in-process as across processes. Postgres caps its own
- * wait at 250 ms.
- */
-const USER_LOCK_WAIT_MS = 1_000;
-/**
- * Longest a repair or rebuild waits for one user's lock before leaving them
- * dirty for the next pass. SQLite waits for its lock synchronously, blocking
- * the event loop, so this is kept short.
- */
+/** Longest an area write waits for another writer of the same user. */
+const WRITE_LOCK_WAIT_MS = 1_000;
+/** Longest a repair or rebuild waits for one user before leaving them for the next pass. */
 const REPAIR_LOCK_WAIT_MS = 100;
 /** How often {@link SyncingAreaRepository.startRepairing} looks for dirty users. */
 const REPAIR_INTERVAL_MS = 10_000;
@@ -21,19 +14,18 @@ const REPAIR_INTERVAL_MS = 10_000;
 /**
  * Keeps the Redis geofence index in step with the area record of truth.
  *
- * Writes go to the source first, then the projection. A projection write that
- * fails is **not** fatal -- the source stays correct and the affected user is
- * marked dirty so a repair rebuilds them. Reads always come from the source.
+ * Each write goes to the source first, committed on its own, then to the
+ * projection, both holding the user's area lock ({@link RedisAreaLock}).
+ * Writes for one user therefore reach both stores in the same order from every
+ * process: without it, two edits of one area could land in the source as A
+ * then B but in Redis as B then A, and geofencing would keep using the older
+ * circle. And since the source has committed before Redis is touched, Redis
+ * never holds a change the source then rolled back.
  *
- * Each write holds the user's lock, the one ingestion and recompute hold, from
- * the source write until the projection write is done. Writes for one user
- * therefore reach both stores in the same order from every process. Without
- * it, two edits of one area could land in the source as A then B but in Redis
- * as B then A, and geofencing would keep using the older circle.
- *
- * Repairs run on a timer (see {@link startRepairing}), never from reads: a read
- * can be made while its caller holds a user lock (recompute does), and a repair
- * there would need a second lock from inside the first.
+ * A projection write that fails is **not** fatal -- the source stays correct
+ * and the affected user is marked dirty for a repair. Repairs rebuild a user
+ * from the source under the same lock, on a timer (see {@link startRepairing}).
+ * Reads always come from the source and never repair.
  *
  * This mirrors the fan-out shape of `CompositeEventPublisher`: one failing sink
  * must not take down the request.
@@ -43,7 +35,7 @@ export class SyncingAreaRepository implements AreaRepository {
   private projection: AreaProjection;
   private redis: RedisClient;
   private logger: Logger;
-  private userLock: UserLock;
+  private lock: RedisAreaLock;
   /**
    * Users whose dirty marker could not be stored in Redis (it was unreachable).
    * Kept in-process so repairDrift can still find them once Redis returns.
@@ -57,13 +49,12 @@ export class SyncingAreaRepository implements AreaRepository {
     projection: AreaProjection,
     redis: RedisClient,
     logger: Logger,
-    userLock: UserLock,
   ) {
     this.source = source;
     this.projection = projection;
     this.redis = redis;
     this.logger = logger;
-    this.userLock = userLock;
+    this.lock = new RedisAreaLock(redis, logger);
   }
 
   /**
@@ -141,8 +132,7 @@ export class SyncingAreaRepository implements AreaRepository {
   /**
    * Repairs dirty users every {@link REPAIR_INTERVAL_MS} until stopped. Every
    * entrypoint starts it, ingestion included, so a failed write or rebuild heals
-   * even with no one reading areas. Start it outside any user lock: the timer
-   * runs in the async context it was started from.
+   * even with no one reading areas.
    */
   startRepairing(intervalMs: number = REPAIR_INTERVAL_MS): void {
     if (this.repairTimer) return;
@@ -163,32 +153,28 @@ export class SyncingAreaRepository implements AreaRepository {
   }
 
   async addArea(area: Area): Promise<void> {
-    await this.underUserLock(area.userId, async () => {
-      await this.source.addArea(area);
-      await this.project(area.userId, () => this.projection.applyArea(area));
-    });
+    await this.write(
+      area.userId,
+      () => this.source.addArea(area),
+      () => this.projection.applyArea(area),
+    );
   }
 
-  /**
-   * Projects only an update the source actually made. Under the user's lock no
-   * other edit or delete of the area can land between the two writes, so the
-   * projection always ends on the source's latest state.
-   */
+  /** Projects only an update the source actually made. */
   async updateArea(area: Area): Promise<boolean> {
-    return this.underUserLock(area.userId, async () => {
-      if (!(await this.source.updateArea(area))) {
-        return false;
-      }
-      await this.project(area.userId, () => this.projection.applyArea(area));
-      return true;
-    });
+    return this.write(
+      area.userId,
+      () => this.source.updateArea(area),
+      (isUpdated) => (isUpdated ? this.projection.applyArea(area) : undefined),
+    );
   }
 
   async removeArea(userId: string, areaId: string): Promise<void> {
-    await this.underUserLock(userId, async () => {
-      await this.source.removeArea(userId, areaId);
-      await this.project(userId, () => this.projection.removeArea(userId, areaId));
-    });
+    await this.write(
+      userId,
+      () => this.source.removeArea(userId, areaId),
+      () => this.projection.removeArea(userId, areaId),
+    );
   }
 
   async listAreas(userId: string): Promise<Area[]> {
@@ -244,20 +230,38 @@ export class SyncingAreaRepository implements AreaRepository {
   }
 
   /**
-   * Runs one write holding the user's lock, waiting at most
-   * {@link USER_LOCK_WAIT_MS} for it. The source write commits with the lock's
-   * transaction, after `work` has already updated the index, so a failure at
-   * any point, the commit included, can leave the index ahead of the store.
-   * The user is then marked dirty, so a repair rebuilds their index from what
-   * the store really holds. A failure before anything was written only costs
-   * one needless repair.
+   * One area write, holding the user's area lock: the source first, then, from
+   * what it returned, the index. A busy lock rejects the write, so the caller
+   * can retry. If Redis cannot be reached at all, the index cannot be written
+   * either, so the write goes to the source alone and the user is marked dirty
+   * for the repair, which takes the lock once Redis is back. The index is never
+   * written without the lock.
    */
-  private async underUserLock<T>(userId: string, work: () => Promise<T>): Promise<T> {
+  private async write<T>(
+    userId: string,
+    writeSource: () => T | Promise<T>,
+    writeIndex: (result: T) => Promise<void> | undefined,
+  ): Promise<T> {
+    let hasStarted = false;
     try {
-      return await this.userLock.withUserLock(userId, work, { waitMs: USER_LOCK_WAIT_MS });
+      return await this.lock.withLock(
+        userId,
+        async () => {
+          hasStarted = true;
+          const result = await writeSource();
+          await this.project(userId, async () => {
+            await writeIndex(result);
+          });
+          return result;
+        },
+        WRITE_LOCK_WAIT_MS,
+      );
     } catch (error) {
+      if (hasStarted || error instanceof AreaLockBusyError) throw error;
+      this.logger.warn(`Area lock unreachable for ${userId}; writing the store only`, error);
+      const result = await writeSource();
       await this.markDirty(userId);
-      throw error;
+      return result;
     }
   }
 
@@ -285,26 +289,24 @@ export class SyncingAreaRepository implements AreaRepository {
   }
 
   /**
-   * Rewrites one user's index from the source, holding their lock. Area writes
-   * commit only when they release it, so the source then holds every write that
-   * has already reached the index: without the lock, a repair could read the
-   * old circle while an edit's new one sat in Redis uncommitted, write the old
-   * one back, and call the user clean. The dirty marker is cleared inside the
-   * lock for the same reason.
+   * Rewrites one user's index from the source, holding their area lock, so no
+   * write for them is half done: a repair can never write an older circle back
+   * over a newer one. The dirty marker is cleared inside the lock for the same
+   * reason.
    *
    * Resolves false, leaving the user dirty, if the lock stays busy for
-   * {@link REPAIR_LOCK_WAIT_MS} or the rewrite fails.
+   * {@link REPAIR_LOCK_WAIT_MS}, Redis is unreachable, or the rewrite fails.
    */
   private async reprojectUser(userId: string): Promise<boolean> {
     try {
-      await this.userLock.withUserLock(
+      await this.lock.withLock(
         userId,
         async () => {
           await this.projection.replaceUserAreas(userId, await this.source.listAreas(userId));
           this.localDirtyUserIds.delete(userId);
           await this.redis.srem(areaProjectionDirtyKey(), userId);
         },
-        { waitMs: REPAIR_LOCK_WAIT_MS },
+        REPAIR_LOCK_WAIT_MS,
       );
       return true;
     } catch (error) {

@@ -38,29 +38,15 @@ export class SqliteLocationRepository
 
   // SQLite serializes writers database-wide. BEGIN IMMEDIATE also coordinates
   // separate app/ingestion processes; process death rolls back and releases it.
-  // Within this process, callers queue; `waitMs` bounds that queue wait, which
-  // the busy timeout does not cover, as it only applies to BEGIN.
-  async withUserLock<T>(
-    _userId: string,
-    work: () => Promise<T>,
-    { waitMs }: { waitMs?: number } = {},
-  ): Promise<T> {
+  async withUserLock<T>(_userId: string, work: () => Promise<T>): Promise<T> {
     const previous = this.queue;
     let release!: () => void;
     this.queue = new Promise<void>((resolve) => {
       release = resolve;
     });
-    const startedAt = Date.now();
-    if (waitMs !== undefined && !(await settlesWithin(previous, waitMs))) {
-      // Whoever queued behind this caller still waits for the current holder.
-      void previous.then(release);
-      throw new Error(`Timed out after ${waitMs}ms waiting for the user lock`);
-    }
     await previous;
     try {
-      this.beginImmediate(
-        waitMs === undefined ? undefined : Math.max(0, waitMs - (Date.now() - startedAt)),
-      );
+      this.db.run('BEGIN IMMEDIATE');
       try {
         const result = await work();
         this.db.run('COMMIT');
@@ -74,27 +60,9 @@ export class SqliteLocationRepository
     }
   }
 
-  /**
-   * Takes the database write lock, waiting at most `budgetMs` for another
-   * process to release it, or the default busy timeout. SQLite waits
-   * synchronously, so a short budget keeps the event loop from stalling.
-   */
-  private beginImmediate(budgetMs: number | undefined): void {
-    if (budgetMs === undefined || budgetMs >= BUSY_TIMEOUT_MS) {
-      this.db.run('BEGIN IMMEDIATE');
-      return;
-    }
-    this.db.run(`PRAGMA busy_timeout = ${Math.floor(budgetMs)}`);
-    try {
-      this.db.run('BEGIN IMMEDIATE');
-    } finally {
-      this.db.run(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS}`);
-    }
-  }
-
   constructor(db: Database) {
     this.db = db;
-    db.run(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS}`);
+    db.run('PRAGMA busy_timeout = 1000');
     db.run(
       'CREATE TABLE IF NOT EXISTS geofence_replay_state (user_id TEXT PRIMARY KEY, state TEXT NOT NULL)',
     );
@@ -256,21 +224,5 @@ export class SqliteLocationRepository
 
   async healthCheck(): Promise<void> {
     this.db.prepare('SELECT 1').get();
-  }
-}
-
-/** How long BEGIN waits for another process's write lock by default. */
-const BUSY_TIMEOUT_MS = 1_000;
-
-/** Whether `promise` settles within `ms`. Never rejects; clears its timer either way. */
-async function settlesWithin(promise: Promise<unknown>, ms: number): Promise<boolean> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const timedOut = new Promise<false>((resolve) => {
-    timer = setTimeout(() => resolve(false), ms);
-  });
-  try {
-    return await Promise.race([promise.then(() => true), timedOut]);
-  } finally {
-    clearTimeout(timer);
   }
 }

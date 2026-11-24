@@ -125,30 +125,26 @@ UI works even when Redis is down.
   re-insert the area the way the `addArea` upsert would. Only a successful update
   is projected.
 - **Writes are serialized per user.** Every create, edit, and delete holds the
-  user's lock from its store write until its index write is done. It is the same
-  lock ingestion and recompute hold: a Postgres advisory lock, or SQLite's write
-  lock. So writes reach the store and the index in the same order from every
-  process: two edits of one area can't leave Redis on the older circle, and a
-  delete can't be undone by an edit finishing after it.
-  - The store write runs inside the lock's transaction (on Postgres it reuses the
-    connection the lock reserved, so lock holders can never exhaust the pool), and
-    commits when the lock is released. If anything fails, the commit included,
-    the user is marked dirty, since Redis may already hold the change.
-  - Waiting for the lock is bounded: 250 ms on Postgres, and 1 s on SQLite, both
-    for the busy timeout and for queueing behind another writer in the same
-    process. An edit that times out, for example during a long recompute, answers
-    `503` and the form keeps the changes.
-- **Repairs and the boot rebuild hold the lock too.** Writes commit only when
-  they release the lock, after Redis already has the change, so an unlocked
-  rebuild could read the old circle, write it back over the new one, and call
-  the user clean. Each user is rebuilt from the store under their lock, and their
-  dirty marker is cleared inside it.
-  - Each user waits at most 100 ms for their lock, on SQLite for the database
-    lock as well (SQLite waits synchronously, stalling the event loop). A busy
-    user stays dirty, and the repair timer tries again.
-  - Repairs never run from reads: recompute reads areas while holding the lock,
-    and a repair there would need a second lock, and on Postgres a second pool
-    connection, from inside the first.
+  user's area lock, `area:lock:<user>` in Redis, from its store write until its
+  index write is done. So writes reach the store and the index in the same order
+  from every process: two edits of one area can't leave Redis on the older
+  circle, and a delete can't be undone by an edit finishing after it.
+  - The store write commits on its own before Redis is touched, so Redis never
+    holds a change the store then rolled back, and no database transaction is
+    held open while Redis is written.
+  - The lock is a `SET NX` with a 10 s expiry, released only by the holder that
+    took it. A writer waits up to 1 s for it; an edit that times out answers `503`
+    and the form keeps the changes. A holder that crashes leaves the lock to
+    expire, and the boot rebuild repairs its half-done write.
+  - With Redis unreachable there is no lock, but no index to write either: the
+    write goes to the store alone and the user is marked dirty. The index is never
+    written without the lock.
+- **Repairs hold the lock too.** Each user is rebuilt from the store under their
+  lock, and their dirty marker is cleared inside it, so a repair never writes an
+  older circle back over a newer one.
+  - A repair timer that every entrypoint starts (ingestion included) repairs dirty
+    users every 10 s, waiting at most 100 ms per user; a busy user waits for the
+    next pass. Reads never repair.
   - The boot rebuild finds the index's users from its metadata keys, so a slice
     left half-written by a failed write is cleared even when it no longer reads
     back as whole areas. A user it can't rebuild is marked dirty for the timer.

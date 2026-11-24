@@ -1,4 +1,5 @@
-import type { SQL } from 'bun';
+import type { SQL, TransactionSQL } from 'bun';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import type {
   Address,
   GeofenceReplayState,
@@ -7,11 +8,6 @@ import type {
   WaypointPayload,
 } from '@/domain/types.ts';
 import type { GeofenceEvent } from '@/domain/events.ts';
-import {
-  activeTransaction,
-  connectionFor,
-  runInTransaction,
-} from '@/repository/postgres-transaction.ts';
 import type {
   AreaEventRepository,
   LocationRepository,
@@ -23,16 +19,14 @@ import {
   type AreaEventRow,
 } from '@/repository/location-repository/area-event-row.ts';
 
-/** The longest any caller waits for a user's advisory lock. */
-const LOCK_TIMEOUT_MS = 250;
-
 export class PostgresLocationRepository
   implements LocationRepository, TrackedUserRepository, AreaEventRepository
 {
   private pool: SQL;
+  private transaction = new AsyncLocalStorage<TransactionSQL>();
 
   private get conn(): SQL {
-    return connectionFor(this.pool);
+    return this.transaction.getStore() ?? this.pool;
   }
 
   readonly replayState = {
@@ -46,26 +40,13 @@ export class PostgresLocationRepository
     },
   };
 
-  /**
-   * Waiting for the lock is capped by `lock_timeout`: 250 ms, or `waitMs` when
-   * the caller wants less.
-   */
-  async withUserLock<T>(
-    userId: string,
-    work: () => Promise<T>,
-    { waitMs }: { waitMs?: number } = {},
-  ): Promise<T> {
-    const lockTimeoutMs = Math.max(
-      1,
-      Math.floor(Math.min(waitMs ?? LOCK_TIMEOUT_MS, LOCK_TIMEOUT_MS)),
-    );
+  async withUserLock<T>(userId: string, work: () => Promise<T>): Promise<T> {
     return this.pool.begin(async (tx) => {
-      // The lock and every Postgres repository's operations use this transaction's
-      // connection (see runInTransaction). Postgres releases the lock on commit,
-      // rollback, or connection loss. SET does not take bind parameters.
-      await tx.unsafe(`SET LOCAL lock_timeout = '${lockTimeoutMs}ms'`);
+      // The lock and all repository operations use this transaction's connection.
+      // Postgres releases it on commit, rollback, or connection loss.
+      await tx`SET LOCAL lock_timeout = '250ms'`;
       await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`geofence:${userId}`}, 0))`;
-      return runInTransaction(this.pool, tx, work);
+      return this.transaction.run(tx, work);
     });
   }
 
@@ -336,7 +317,7 @@ export class PostgresLocationRepository
       }
       return Number(before.count);
     };
-    const transaction = activeTransaction(this.pool);
+    const transaction = this.transaction.getStore();
     return transaction ? transaction.savepoint(replace) : this.pool.begin(replace);
   }
 
