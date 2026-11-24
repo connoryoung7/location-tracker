@@ -347,6 +347,30 @@ describe('SyncingAreaRepository', () => {
     expect(await held.listAllAreas()).toEqual([]);
   });
 
+  test('an edit whose lock expired mid-write leaves the user dirty, so a delete it overwrote is repaired', async () => {
+    const held = new HeldProjection(redis);
+    const stalling = new SyncingAreaRepository(source, held, redis, mockLogger());
+    await stalling.addArea(buildArea({ id: 'a1', userId: 'AB' }));
+
+    held.holdNextWrite();
+    const edit = stalling.updateArea(buildArea({ id: 'a1', userId: 'AB', name: 'Gym' }));
+    await settle();
+    // The edit stalls past its lock's expiry, and a delete gets in.
+    await redis.del('area:lock:AB');
+    await repo.removeArea('AB', 'a1');
+    held.release();
+    await edit;
+
+    // The stalled edit wrote the deleted area back, but knows it lost the lock.
+    expect(await source.listAllAreas()).toEqual([]);
+    expect(await redis.smembers('area:projection-dirty')).toEqual(['AB']);
+
+    await repo.repairDrift();
+
+    expect(await projection.listAllAreas()).toEqual([]);
+    expect(await redis.smembers('area:projection-dirty')).toEqual([]);
+  });
+
   test('a store write that fails never reaches the index', async () => {
     await repo.addArea(buildArea({ id: 'a1', userId: 'AB', radius: 100 }));
     const failing = Object.create(source) as SqliteAreaRepository;

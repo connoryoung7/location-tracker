@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test';
+import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test';
 import { RedisClient } from 'bun';
 import { AreaLockBusyError, RedisAreaLock } from '@/repository/area-repository/redis.area-lock.ts';
 import { mockLogger } from '@/test/mocks.ts';
@@ -102,8 +102,11 @@ describe('RedisAreaLock', () => {
     expect(await lock.withLock('AB', async () => 'ran', 1_000)).toBe('ran');
   });
 
-  test('a holder whose lock expired never releases the next holder', async () => {
-    await lock.withLock(
+  test('a holder whose lock expired never releases the next holder, and says it lost it', async () => {
+    const onLost = mock(async (_userId: string) => {});
+    const stalling = new RedisAreaLock(redis, mockLogger(), onLost);
+
+    await stalling.withLock(
       'AB',
       async () => {
         // This holder stalled past its TTL, and another one took the lock.
@@ -113,5 +116,76 @@ describe('RedisAreaLock', () => {
     );
 
     expect(await redis.get('area:lock:AB')).toBe('next-holder');
+    expect(onLost).toHaveBeenCalledWith('AB');
+  });
+
+  test('a lock that simply expired under its holder is reported lost too', async () => {
+    const onLost = mock(async (_userId: string) => {});
+    const stalling = new RedisAreaLock(redis, mockLogger(), onLost);
+
+    await stalling.withLock('AB', () => redis.del('area:lock:AB'), 1_000);
+
+    expect(onLost).toHaveBeenCalledWith('AB');
+    // A holder that kept it to the end is not.
+    onLost.mockClear();
+    await stalling.withLock('AB', async () => {}, 1_000);
+    expect(onLost).not.toHaveBeenCalled();
+  });
+
+  test('an acquisition Redis does not answer in time fails without running the work, and a late grant is handed back', async () => {
+    // Connected, but slow to answer SET.
+    const slow = new Proxy(redis, {
+      get(target, prop) {
+        if (prop === 'send') {
+          return async (command: string, args: string[]) => {
+            if (command === 'SET') await Bun.sleep(200);
+            return target.send(command, args);
+          };
+        }
+        const value = Reflect.get(target, prop, target);
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    });
+    const slowLock = new RedisAreaLock(slow, mockLogger());
+    let hasRun = false;
+
+    const startedAt = performance.now();
+    const outcome = slowLock.withLock(
+      'AB',
+      async () => {
+        hasRun = true;
+      },
+      50,
+    );
+    await expect(outcome).rejects.toThrow('did not answer');
+    expect(performance.now() - startedAt).toBeLessThan(150);
+    expect(hasRun).toBe(false);
+
+    // The late grant is given straight back, so nobody waits out its TTL.
+    await Bun.sleep(300);
+    expect(await redis.exists('area:lock:AB')).toBe(false);
+  });
+
+  test('a release Redis does not answer counts as lost, and never hangs the write', async () => {
+    const onLost = mock(async (_userId: string) => {});
+    const silent = new Proxy(redis, {
+      get(target, prop) {
+        if (prop === 'send') {
+          return (command: string, args: string[]) =>
+            command === 'EVAL' ? new Promise(() => {}) : target.send(command, args);
+        }
+        const value = Reflect.get(target, prop, target);
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    });
+
+    const result = await new RedisAreaLock(silent, mockLogger(), onLost).withLock(
+      'AB',
+      async () => 'written',
+      1_000,
+    );
+
+    expect(result).toBe('written');
+    expect(onLost).toHaveBeenCalledWith('AB');
   });
 });

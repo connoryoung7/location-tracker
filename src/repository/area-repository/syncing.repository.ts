@@ -2,7 +2,12 @@ import type { RedisClient } from 'bun';
 import type { Area } from '@/domain/types.ts';
 import type { AreaProjection, AreaRepository, Logger } from '@/domain/ports.ts';
 import { areaProjectionDirtyKey } from '@/infrastructure/redis/keys.ts';
-import { AreaLockBusyError, RedisAreaLock } from '@/repository/area-repository/redis.area-lock.ts';
+import {
+  AreaLockBusyError,
+  NO_ANSWER,
+  RedisAreaLock,
+  answerWithin,
+} from '@/repository/area-repository/redis.area-lock.ts';
 
 /** Longest an area write waits for another writer of the same user. */
 const WRITE_LOCK_WAIT_MS = 1_000;
@@ -10,6 +15,8 @@ const WRITE_LOCK_WAIT_MS = 1_000;
 const REPAIR_LOCK_WAIT_MS = 100;
 /** How often {@link SyncingAreaRepository.startRepairing} looks for dirty users. */
 const REPAIR_INTERVAL_MS = 10_000;
+/** Longest a dirty marker waits for Redis before it is kept in-process instead. */
+const MARK_DIRTY_TIMEOUT_MS = 1_000;
 
 /**
  * Keeps the Redis geofence index in step with the area record of truth.
@@ -54,7 +61,9 @@ export class SyncingAreaRepository implements AreaRepository {
     this.projection = projection;
     this.redis = redis;
     this.logger = logger;
-    this.lock = new RedisAreaLock(redis, logger);
+    // A write or repair whose lock expired under it may have written a stale
+    // index, so that user is rebuilt by the next repair.
+    this.lock = new RedisAreaLock(redis, logger, (userId) => this.markDirty(userId));
   }
 
   /**
@@ -279,10 +288,15 @@ export class SyncingAreaRepository implements AreaRepository {
 
   private async markDirty(userId: string): Promise<void> {
     try {
-      await this.redis.sadd(areaProjectionDirtyKey(), userId);
+      const answer = await answerWithin(
+        this.redis.sadd(areaProjectionDirtyKey(), userId),
+        MARK_DIRTY_TIMEOUT_MS,
+      );
+      if (answer === NO_ANSWER) throw new Error('Redis did not answer');
     } catch (error) {
-      // Redis is unreachable, so the marker cannot be stored there. Remember it
-      // in-process so repairDrift can re-project once Redis is back.
+      // Redis is unreachable, or not answering, so the marker cannot be stored
+      // there. Remember it in-process so repairDrift can re-project once Redis
+      // is back.
       this.localDirtyUserIds.add(userId);
       this.logger.error(`Failed to mark ${userId} dirty in Redis; tracking locally`, error);
     }

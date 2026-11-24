@@ -136,9 +136,12 @@ UI works even when Redis is down.
     took it. A writer waits up to 1 s for it; an edit that times out answers `503`
     and the form keeps the changes. A holder that crashes leaves the lock to
     expire, and the boot rebuild repairs its half-done write.
-  - With Redis unreachable there is no lock, but no index to write either: the
-    write goes to the store alone and the user is marked dirty. The index is never
-    written without the lock.
+  - A holder that stalls past the expiry can lose the lock to another writer and
+    then write a stale index. It finds out when it releases, and marks the user
+    dirty, so the repair rebuilds them from the store.
+  - With Redis unreachable, or not answering the lock request in time, there is
+    no lock, but no index to write either: the write goes to the store alone and
+    the user is marked dirty. The index is never written without the lock.
 - **Repairs hold the lock too.** Each user is rebuilt from the store under their
   lock, and their dirty marker is cleared inside it, so a repair never writes an
   older circle back over a newer one.
