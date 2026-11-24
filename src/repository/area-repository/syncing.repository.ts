@@ -1,7 +1,10 @@
 import type { RedisClient } from 'bun';
 import type { Area } from '@/domain/types.ts';
 import type { AreaProjection, AreaRepository, Logger } from '@/domain/ports.ts';
-import { areaProjectionDirtyKey } from '@/infrastructure/redis/keys.ts';
+import {
+  areaProjectionDirtyKey,
+  areaProjectionDirtyVersionsKey,
+} from '@/infrastructure/redis/keys.ts';
 import {
   AreaLockBusyError,
   NO_ANSWER,
@@ -17,6 +20,18 @@ const REPAIR_LOCK_WAIT_MS = 100;
 const REPAIR_INTERVAL_MS = 10_000;
 /** Longest a dirty marker waits for Redis before it is kept in-process instead. */
 const MARK_DIRTY_TIMEOUT_MS = 1_000;
+/** Bumps the user's dirty count and marks them dirty, in one step. */
+const MARK_DIRTY_SCRIPT = `
+redis.call('HINCRBY', KEYS[2], ARGV[1], 1)
+return redis.call('SADD', KEYS[1], ARGV[1])
+`;
+/** Clears the user's dirty mark only if their count is still the one given; 1 if it was. */
+const CLEAR_DIRTY_SCRIPT = `
+if (redis.call('HGET', KEYS[2], ARGV[1]) or '0') == ARGV[2] then
+  return redis.call('SREM', KEYS[1], ARGV[1])
+end
+return 0
+`;
 
 /**
  * Keeps the Redis geofence index in step with the area record of truth.
@@ -44,10 +59,12 @@ export class SyncingAreaRepository implements AreaRepository {
   private logger: Logger;
   private lock: RedisAreaLock;
   /**
-   * Users whose dirty marker could not be stored in Redis (it was unreachable).
-   * Kept in-process so repairDrift can still find them once Redis returns.
+   * Users whose dirty marker could not be stored in Redis (it was unreachable),
+   * each with how many times that happened. Kept in-process so repairDrift can
+   * still find them once Redis returns; counted for the same reason as
+   * {@link areaProjectionDirtyVersionsKey}.
    */
-  private localDirtyUserIds = new Set<string>();
+  private localDirtyVersions = new Map<string, number>();
   private repairTimer: ReturnType<typeof setInterval> | undefined;
   private isRepairing = false;
 
@@ -230,7 +247,7 @@ export class SyncingAreaRepository implements AreaRepository {
       return;
     }
 
-    const dirtyUserIds = new Set([...redisDirtyUserIds, ...this.localDirtyUserIds]);
+    const dirtyUserIds = new Set([...redisDirtyUserIds, ...this.localDirtyVersions.keys()]);
     for (const userId of dirtyUserIds) {
       if (await this.reprojectUser(userId)) {
         this.logger.info(`Repaired projected areas for ${userId}`);
@@ -289,7 +306,13 @@ export class SyncingAreaRepository implements AreaRepository {
   private async markDirty(userId: string): Promise<void> {
     try {
       const answer = await answerWithin(
-        this.redis.sadd(areaProjectionDirtyKey(), userId),
+        this.redis.send('EVAL', [
+          MARK_DIRTY_SCRIPT,
+          '2',
+          areaProjectionDirtyKey(),
+          areaProjectionDirtyVersionsKey(),
+          userId,
+        ]),
         MARK_DIRTY_TIMEOUT_MS,
       );
       if (answer === NO_ANSWER) throw new Error('Redis did not answer');
@@ -297,16 +320,26 @@ export class SyncingAreaRepository implements AreaRepository {
       // Redis is unreachable, or not answering, so the marker cannot be stored
       // there. Remember it in-process so repairDrift can re-project once Redis
       // is back.
-      this.localDirtyUserIds.add(userId);
+      this.localDirtyVersions.set(userId, (this.localDirtyVersions.get(userId) ?? 0) + 1);
       this.logger.error(`Failed to mark ${userId} dirty in Redis; tracking locally`, error);
     }
+  }
+
+  /** How many times the user has been marked dirty in Redis, as the clear script compares it. */
+  private async dirtyVersion(userId: string): Promise<string> {
+    return (await this.redis.hget(areaProjectionDirtyVersionsKey(), userId)) ?? '0';
   }
 
   /**
    * Rewrites one user's index from the source, holding their area lock, so no
    * write for them is half done: a repair can never write an older circle back
-   * over a newer one. The dirty marker is cleared inside the lock for the same
-   * reason.
+   * over a newer one.
+   *
+   * The lock can still be lost under a stalled repair, and a write that gives up
+   * on the lock writes the store alone; either may mark the user dirty while the
+   * repair is writing an older snapshot. So the user's dirty count is read
+   * before the store, and the user is only called clean if the count has not
+   * moved since: a mark made during the repair stays, for the next pass.
    *
    * Resolves false, leaving the user dirty, if the lock stays busy for
    * {@link REPAIR_LOCK_WAIT_MS}, Redis is unreachable, or the rewrite fails.
@@ -316,9 +349,20 @@ export class SyncingAreaRepository implements AreaRepository {
       await this.lock.withLock(
         userId,
         async () => {
+          const version = await this.dirtyVersion(userId);
+          const localVersion = this.localDirtyVersions.get(userId);
           await this.projection.replaceUserAreas(userId, await this.source.listAreas(userId));
-          this.localDirtyUserIds.delete(userId);
-          await this.redis.srem(areaProjectionDirtyKey(), userId);
+          if (this.localDirtyVersions.get(userId) === localVersion) {
+            this.localDirtyVersions.delete(userId);
+          }
+          await this.redis.send('EVAL', [
+            CLEAR_DIRTY_SCRIPT,
+            '2',
+            areaProjectionDirtyKey(),
+            areaProjectionDirtyVersionsKey(),
+            userId,
+            version,
+          ]);
         },
         REPAIR_LOCK_WAIT_MS,
       );

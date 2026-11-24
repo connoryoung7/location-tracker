@@ -143,8 +143,11 @@ UI works even when Redis is down.
     no lock, but no index to write either: the write goes to the store alone and
     the user is marked dirty. The index is never written without the lock.
 - **Repairs hold the lock too.** Each user is rebuilt from the store under their
-  lock, and their dirty marker is cleared inside it, so a repair never writes an
-  older circle back over a newer one.
+  lock, so a repair never writes an older circle back over a newer one. Marking a
+  user dirty also bumps a per-user count (`area:projection-dirty-versions`), and a
+  repair only clears the user if the count is unchanged since it read the store,
+  so a write marking them dirty mid-repair (one that lost its lock, or wrote the
+  store alone) is never forgotten.
   - A repair timer that every entrypoint starts (ingestion included) repairs dirty
     users every 10 s, waiting at most 100 ms per user; a busy user waits for the
     next pass. Reads never repair.

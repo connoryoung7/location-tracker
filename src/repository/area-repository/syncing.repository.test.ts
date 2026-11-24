@@ -158,13 +158,15 @@ describe('SyncingAreaRepository', () => {
   });
 
   test('a user whose dirty marker could not reach Redis is still repaired later', async () => {
-    let failSadd = true;
+    let failMarkDirty = true;
     const flakyRedis = new Proxy(redis, {
       get(target, prop) {
-        if (prop === 'sadd') {
-          return (...args: Parameters<RedisClient['sadd']>) => {
-            if (failSadd) return Promise.reject(new Error('redis down'));
-            return target.sadd(...args);
+        if (prop === 'send') {
+          // Marking dirty runs a script that bumps the user's dirty count.
+          return (command: string, args: string[]) => {
+            const isMarkDirty = command === 'EVAL' && args[0]!.includes('HINCRBY');
+            if (failMarkDirty && isMarkDirty) return Promise.reject(new Error('redis down'));
+            return target.send(command, args);
           };
         }
         const value = Reflect.get(target, prop, target);
@@ -194,7 +196,7 @@ describe('SyncingAreaRepository', () => {
     expect(await projection.listAllAreas()).toEqual([]);
 
     // Redis is back; the in-process marker drives the repair.
-    failSadd = false;
+    failMarkDirty = false;
     await syncing.repairDrift();
 
     expect(await projection.listAllAreas()).toHaveLength(1);
@@ -412,6 +414,54 @@ describe('SyncingAreaRepository', () => {
     await repo.repairDrift();
 
     expect(await projection.listAllAreas()).toHaveLength(1);
+  });
+
+  test('a mark made while a repair holds an older snapshot survives that repair', async () => {
+    await repo.addArea(buildArea({ id: 'a1', userId: 'AB', radius: 100 }));
+    await redis.sadd('area:projection-dirty', 'AB');
+    // A writer that gives up on the lock writes the store alone and marks the
+    // user dirty; here it does so after the repair has read radius 100.
+    const lockless = new Proxy(redis, {
+      get(target, prop) {
+        if (prop === 'send') {
+          return (command: string, args: string[]) =>
+            command === 'SET'
+              ? Promise.reject(new Error('redis down'))
+              : target.send(command, args);
+        }
+        const value = Reflect.get(target, prop, target);
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    });
+    const storeOnlyWriter = new SyncingAreaRepository(source, projection, lockless, mockLogger());
+    let isFirstRepair = true;
+    const racing: AreaProjection = {
+      applyArea: (area) => projection.applyArea(area),
+      removeArea: (userId, areaId) => projection.removeArea(userId, areaId),
+      replaceUserAreas: async (userId, areas) => {
+        if (isFirstRepair) {
+          isFirstRepair = false;
+          await storeOnlyWriter.updateArea(buildArea({ id: 'a1', userId: 'AB', radius: 250 }));
+        }
+        return projection.replaceUserAreas(userId, areas);
+      },
+      replaceAll: (areas) => projection.replaceAll(areas),
+      listAllAreas: () => projection.listAllAreas(),
+      listProjectedUserIds: () => projection.listProjectedUserIds(),
+      healthCheck: () => projection.healthCheck(),
+    };
+    const repairer = new SyncingAreaRepository(source, racing, redis, mockLogger());
+
+    await repairer.repairDrift();
+
+    // The repair wrote its older snapshot, so the newer mark must still stand.
+    expect((await projection.listAllAreas())[0]).toMatchObject({ radius: 100 });
+    expect(await redis.smembers('area:projection-dirty')).toEqual(['AB']);
+
+    await repairer.repairDrift();
+
+    expect((await projection.listAllAreas())[0]).toMatchObject({ radius: 250 });
+    expect(await redis.smembers('area:projection-dirty')).toEqual([]);
   });
 
   test('a repair waits for the user lock, and leaves the user dirty while it is busy', async () => {

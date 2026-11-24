@@ -25,6 +25,15 @@ export function areaProjectionDirtyKey(): string {
 }
 
 /**
+ * How many times each user has been marked dirty, a counter that only grows.
+ * A repair clears a user only if their count is unchanged since it read the
+ * store, so a mark made during the repair is never lost.
+ */
+export function areaProjectionDirtyVersionsKey(): string {
+  return 'area:projection-dirty-versions';
+}
+
+/**
  * Held while one of a user's areas is written to the store and then the index,
  * so writes from every process reach both in the same order. See
  * `RedisAreaLock`.
