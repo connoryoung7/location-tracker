@@ -23,6 +23,9 @@ import {
   type AreaEventRow,
 } from '@/repository/location-repository/area-event-row.ts';
 
+/** The longest any caller waits for a user's advisory lock. */
+const LOCK_TIMEOUT_MS = 250;
+
 export class PostgresLocationRepository
   implements LocationRepository, TrackedUserRepository, AreaEventRepository
 {
@@ -44,19 +47,23 @@ export class PostgresLocationRepository
   };
 
   /**
-   * Waiting for the lock is already bounded at 250 ms by `lock_timeout`, which is
-   * tighter than any `waitMs` callers pass, so `waitMs` is not needed here.
+   * Waiting for the lock is capped by `lock_timeout`: 250 ms, or `waitMs` when
+   * the caller wants less.
    */
   async withUserLock<T>(
     userId: string,
     work: () => Promise<T>,
-    _options?: { waitMs?: number },
+    { waitMs }: { waitMs?: number } = {},
   ): Promise<T> {
+    const lockTimeoutMs = Math.max(
+      1,
+      Math.floor(Math.min(waitMs ?? LOCK_TIMEOUT_MS, LOCK_TIMEOUT_MS)),
+    );
     return this.pool.begin(async (tx) => {
       // The lock and every Postgres repository's operations use this transaction's
       // connection (see runInTransaction). Postgres releases the lock on commit,
-      // rollback, or connection loss.
-      await tx`SET LOCAL lock_timeout = '250ms'`;
+      // rollback, or connection loss. SET does not take bind parameters.
+      await tx.unsafe(`SET LOCAL lock_timeout = '${lockTimeoutMs}ms'`);
       await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`geofence:${userId}`}, 0))`;
       return runInTransaction(this.pool, tx, work);
     });

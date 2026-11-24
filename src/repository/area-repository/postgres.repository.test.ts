@@ -72,6 +72,25 @@ describe.skipIf(!url)('PostgresAreaRepository', () => {
     }
   });
 
+  test('waitMs caps waiting for the advisory lock below the 250 ms default', async () => {
+    const lock = new PostgresLocationRepository(sql);
+    const holding = Promise.withResolvers<void>();
+    const locked = Promise.withResolvers<void>();
+    const holder = lock.withUserLock('AB', async () => {
+      locked.resolve();
+      await holding.promise;
+    });
+    await locked.promise;
+    try {
+      const startedAt = performance.now();
+      await expect(lock.withUserLock('AB', async () => {}, { waitMs: 20 })).rejects.toThrow();
+      expect(performance.now() - startedAt).toBeLessThan(200);
+    } finally {
+      holding.resolve();
+      await holder;
+    }
+  });
+
   test('a write under the user lock commits or rolls back with it', async () => {
     const lock = new PostgresLocationRepository(sql);
     await repo.addArea(buildArea({ id: 'a1', userId: 'AB', radius: 100 }));

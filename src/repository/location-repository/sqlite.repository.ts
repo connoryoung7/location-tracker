@@ -50,6 +50,7 @@ export class SqliteLocationRepository
     this.queue = new Promise<void>((resolve) => {
       release = resolve;
     });
+    const startedAt = Date.now();
     if (waitMs !== undefined && !(await settlesWithin(previous, waitMs))) {
       // Whoever queued behind this caller still waits for the current holder.
       void previous.then(release);
@@ -57,7 +58,9 @@ export class SqliteLocationRepository
     }
     await previous;
     try {
-      this.db.run('BEGIN IMMEDIATE');
+      this.beginImmediate(
+        waitMs === undefined ? undefined : Math.max(0, waitMs - (Date.now() - startedAt)),
+      );
       try {
         const result = await work();
         this.db.run('COMMIT');
@@ -71,9 +74,27 @@ export class SqliteLocationRepository
     }
   }
 
+  /**
+   * Takes the database write lock, waiting at most `budgetMs` for another
+   * process to release it, or the default busy timeout. SQLite waits
+   * synchronously, so a short budget keeps the event loop from stalling.
+   */
+  private beginImmediate(budgetMs: number | undefined): void {
+    if (budgetMs === undefined || budgetMs >= BUSY_TIMEOUT_MS) {
+      this.db.run('BEGIN IMMEDIATE');
+      return;
+    }
+    this.db.run(`PRAGMA busy_timeout = ${Math.floor(budgetMs)}`);
+    try {
+      this.db.run('BEGIN IMMEDIATE');
+    } finally {
+      this.db.run(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS}`);
+    }
+  }
+
   constructor(db: Database) {
     this.db = db;
-    db.run('PRAGMA busy_timeout = 1000');
+    db.run(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS}`);
     db.run(
       'CREATE TABLE IF NOT EXISTS geofence_replay_state (user_id TEXT PRIMARY KEY, state TEXT NOT NULL)',
     );
@@ -237,6 +258,9 @@ export class SqliteLocationRepository
     this.db.prepare('SELECT 1').get();
   }
 }
+
+/** How long BEGIN waits for another process's write lock by default. */
+const BUSY_TIMEOUT_MS = 1_000;
 
 /** Whether `promise` settles within `ms`. Never rejects; clears its timer either way. */
 async function settlesWithin(promise: Promise<unknown>, ms: number): Promise<boolean> {

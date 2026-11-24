@@ -113,8 +113,9 @@ UI works even when Redis is down.
   which rewrites the whole index from the store, user by user. A lost Redis volume
   self-heals on the next restart.
 - **Dirty marking.** A projection write that fails is logged, not fatal — the store
-  is already correct. The user is added to `area:projection-dirty` and the next read
-  re-projects them, so the index self-heals without a background process.
+  is already correct. The user is added to `area:projection-dirty`, and a repair
+  timer that every entrypoint starts (ingestion included) re-projects dirty users
+  every 10 s, so the index self-heals even when nobody is reading areas.
 - **Membership is preserved.** A rebuild rewrites area definitions but deliberately
   leaves `geofence:inside` and `geofence:pending-exit` alone, so a user already
   inside an area does not re-enter it and fire a duplicate event. State for areas
@@ -141,10 +142,16 @@ UI works even when Redis is down.
   they release the lock, after Redis already has the change, so an unlocked
   rebuild could read the old circle, write it back over the new one, and call
   the user clean. Each user is rebuilt from the store under their lock, and their
-  dirty marker is cleared inside it. A repair runs on reads, which recompute makes
-  while holding the lock, so it waits at most 100 ms and otherwise leaves the
-  user dirty for the next read. The boot rebuild waits up to 5 s per user and
-  marks any still-busy user dirty.
+  dirty marker is cleared inside it.
+  - Each user waits at most 100 ms for their lock, on SQLite for the database
+    lock as well (SQLite waits synchronously, stalling the event loop). A busy
+    user stays dirty, and the repair timer tries again.
+  - Repairs never run from reads: recompute reads areas while holding the lock,
+    and a repair there would need a second lock, and on Postgres a second pool
+    connection, from inside the first.
+  - The boot rebuild finds the index's users from its metadata keys, so a slice
+    left half-written by a failed write is cleared even when it no longer reads
+    back as whole areas. A user it can't rebuild is marked dirty for the timer.
 
 ### The one-time cutover
 

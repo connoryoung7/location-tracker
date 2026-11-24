@@ -127,7 +127,7 @@ describe('SyncingAreaRepository', () => {
     expect(await projection.listAllAreas()).toEqual([]);
   });
 
-  test('a failed index write still commits to the store and is repaired on read', async () => {
+  test('a failed index write still commits to the store and is repaired on the next pass', async () => {
     const logger = mockLogger();
     let failNextApply = true;
     const flaky: AreaProjection = {
@@ -142,6 +142,7 @@ describe('SyncingAreaRepository', () => {
       replaceUserAreas: (userId, areas) => projection.replaceUserAreas(userId, areas),
       replaceAll: (areas) => projection.replaceAll(areas),
       listAllAreas: () => projection.listAllAreas(),
+      listProjectedUserIds: () => projection.listProjectedUserIds(),
       healthCheck: () => projection.healthCheck(),
     };
     const syncing = new SyncingAreaRepository(source, flaky, redis, logger, userLock);
@@ -154,8 +155,8 @@ describe('SyncingAreaRepository', () => {
     expect(await redis.smembers('area:projection-dirty')).toEqual(['AB']);
     expect(logger.error).toHaveBeenCalled();
 
-    // A read repairs the drift and clears the marker.
-    await syncing.listAllAreas();
+    // A repair pass rebuilds the user and clears the marker.
+    await syncing.repairDrift();
 
     expect(await projection.listAllAreas()).toHaveLength(1);
     expect(await redis.smembers('area:projection-dirty')).toEqual([]);
@@ -188,6 +189,7 @@ describe('SyncingAreaRepository', () => {
       replaceUserAreas: (userId, areas) => projection.replaceUserAreas(userId, areas),
       replaceAll: (areas) => projection.replaceAll(areas),
       listAllAreas: () => projection.listAllAreas(),
+      listProjectedUserIds: () => projection.listProjectedUserIds(),
       healthCheck: () => projection.healthCheck(),
     };
     const syncing = new SyncingAreaRepository(source, flaky, flakyRedis, mockLogger(), userLock);
@@ -198,7 +200,7 @@ describe('SyncingAreaRepository', () => {
 
     // Redis is back; the in-process marker drives the repair.
     failSadd = false;
-    await syncing.listAllAreas();
+    await syncing.repairDrift();
 
     expect(await projection.listAllAreas()).toHaveLength(1);
   });
@@ -286,6 +288,7 @@ describe('SyncingAreaRepository', () => {
       replaceUserAreas: (userId, areas) => projection.replaceUserAreas(userId, areas),
       replaceAll: (areas) => projection.replaceAll(areas),
       listAllAreas: () => projection.listAllAreas(),
+      listProjectedUserIds: () => projection.listProjectedUserIds(),
       healthCheck: () => projection.healthCheck(),
     };
     const syncing = new SyncingAreaRepository(source, flaky, redis, mockLogger(), userLock);
@@ -299,7 +302,7 @@ describe('SyncingAreaRepository', () => {
     expect(await redis.smembers('area:projection-dirty')).toEqual(['AB']);
 
     // The repair re-projects the user from the store with replaceUserAreas.
-    await syncing.listAllAreas();
+    await syncing.repairDrift();
 
     expect((await projection.listAllAreas())[0]).toMatchObject({ id: 'a1', name: 'Home' });
     expect(await redis.smembers('area:projection-dirty')).toEqual([]);
@@ -375,8 +378,8 @@ describe('SyncingAreaRepository', () => {
     expect(await source.getArea('AB', 'a1')).toMatchObject({ radius: 100 });
     expect(await redis.smembers('area:projection-dirty')).toEqual(['AB']);
 
-    // The next read rebuilds the index from what the store really holds.
-    await syncing.listAreas('AB');
+    // The next repair pass rebuilds the index from what the store really holds.
+    await syncing.repairDrift();
 
     expect((await projection.listAllAreas())[0]).toMatchObject({ id: 'a1', radius: 100 });
     expect(await redis.smembers('area:projection-dirty')).toEqual([]);
@@ -391,27 +394,49 @@ describe('SyncingAreaRepository', () => {
     await settle();
 
     // Something holds the lock, so the repair gives up rather than race it.
-    await repo.listAreas('AB');
+    await repo.repairDrift();
     expect(await projection.listAllAreas()).toEqual([]);
     expect(await redis.smembers('area:projection-dirty')).toEqual(['AB']);
 
     holding.resolve();
     await holder;
-    await repo.listAreas('AB');
+    await repo.repairDrift();
 
     expect(await projection.listAllAreas()).toHaveLength(1);
     expect(await redis.smembers('area:projection-dirty')).toEqual([]);
   });
 
-  test('a read made while holding the user lock, as recompute does, does not wait for itself', async () => {
+  test('reads never repair, so a read made under the user lock, as recompute makes, never waits', async () => {
     await repo.addArea(buildArea({ id: 'a1', userId: 'AB' }));
+    await projection.replaceUserAreas('AB', []);
     await redis.sadd('area:projection-dirty', 'AB');
 
     const areas = await userLock.withUserLock('AB', () => repo.listAreas('AB'));
+    await repo.listAreas('AB');
+    await repo.listAllAreas();
 
     expect(areas).toHaveLength(1);
-    // The repair could not take the lock its own caller held, so it waits for the next read.
+    expect(await projection.listAllAreas()).toEqual([]);
     expect(await redis.smembers('area:projection-dirty')).toEqual(['AB']);
+  });
+
+  test('the repair timer heals a dirty user with no one reading', async () => {
+    await repo.addArea(buildArea({ id: 'a1', userId: 'AB' }));
+    await projection.replaceUserAreas('AB', []);
+    await redis.sadd('area:projection-dirty', 'AB');
+
+    repo.startRepairing(20);
+    try {
+      for (let attempt = 0; attempt < 50; attempt += 1) {
+        if ((await redis.smembers('area:projection-dirty')).length === 0) break;
+        await settle();
+      }
+    } finally {
+      repo.stopRepairing();
+    }
+
+    expect(await projection.listAllAreas()).toHaveLength(1);
+    expect(await redis.smembers('area:projection-dirty')).toEqual([]);
   });
 
   test('a rebuild covers users only the index or the dirty set knows about', async () => {
@@ -421,6 +446,36 @@ describe('SyncingAreaRepository', () => {
     await repo.rebuildProjection();
 
     expect(await projection.listAllAreas()).toEqual([]);
+    expect(await redis.smembers('area:projection-dirty')).toEqual([]);
+  });
+
+  test('a rebuild clears a slice left half-written, which no longer reads back as areas', async () => {
+    // A delete whose Redis write failed after removing the position: the
+    // metadata, the max radius and membership are left behind.
+    await projection.applyArea(buildArea({ id: 'gone', userId: 'CD', radius: 500 }));
+    await redis.sadd('geofence:inside:CD', 'gone');
+    await redis.zrem('geo:areas:CD', 'gone');
+    expect(await projection.listAllAreas()).toEqual([]);
+
+    await repo.rebuildProjection();
+
+    expect(await redis.hgetall('area:meta:CD')).toEqual({});
+    expect(await redis.get('area:maxradius:CD')).toBeNull();
+    expect(await redis.sismember('geofence:inside:CD', 'gone')).toBe(false);
+  });
+
+  test("a rebuild leaves a user it can't reach dirty for the repair timer, rather than failing", async () => {
+    await repo.addArea(buildArea({ id: 'a1', userId: 'AB' }));
+    const holding = Promise.withResolvers<void>();
+    const holder = userLock.withUserLock('AB', () => holding.promise);
+    await settle();
+
+    await repo.rebuildProjection();
+    expect(await redis.smembers('area:projection-dirty')).toEqual(['AB']);
+
+    holding.resolve();
+    await holder;
+    await repo.repairDrift();
     expect(await redis.smembers('area:projection-dirty')).toEqual([]);
   });
 
@@ -493,12 +548,12 @@ describe.skipIf(!POSTGRES_URL)('SyncingAreaRepository on Postgres', () => {
     isHolding = true;
     const edit = syncing.updateArea(buildArea({ id: 'a1', userId: 'AB', radius: 250 }));
     await settle();
-    // The poll's read runs the repair while the edit is still uncommitted.
-    await syncing.listAreas('AB');
+    // A repair pass runs while the edit is still uncommitted.
+    await syncing.repairDrift();
     isHolding = false;
     beforeCommit.resolve();
     await edit;
-    await syncing.listAreas('AB');
+    await syncing.repairDrift();
 
     expect(await source.getArea('AB', 'a1')).toMatchObject({ radius: 250 });
     expect((await projection.listAllAreas())[0]).toMatchObject({ id: 'a1', radius: 250 });

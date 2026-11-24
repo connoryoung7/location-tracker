@@ -84,7 +84,7 @@ export class RedisAreaProjection implements AreaProjection {
     // Users present only in Redis have no areas in the source of truth, so their
     // slice has to be cleared explicitly -- iterating the incoming areas alone
     // would leave them behind.
-    for (const userId of await this.projectedUserIds()) {
+    for (const userId of await this.listProjectedUserIds()) {
       if (!areasByUser.has(userId)) {
         areasByUser.set(userId, []);
       }
@@ -97,7 +97,7 @@ export class RedisAreaProjection implements AreaProjection {
 
   async listAllAreas(): Promise<Area[]> {
     const areasByUser = await Promise.all(
-      (await this.projectedUserIds()).map((userId) => this.listAreas(userId)),
+      (await this.listProjectedUserIds()).map((userId) => this.listAreas(userId)),
     );
 
     return areasByUser.flat();
@@ -140,7 +140,8 @@ export class RedisAreaProjection implements AreaProjection {
   }
 
   /** Users with a slice in the index, discovered by scanning the meta keys. */
-  private async projectedUserIds(): Promise<string[]> {
+  /** Found from the metadata keys, which a half-written slice still has. */
+  async listProjectedUserIds(): Promise<string[]> {
     const userIds: string[] = [];
     let cursor = '0';
 

@@ -144,6 +144,45 @@ test('a caller with waitMs gives up waiting in the queue, and the queue still ho
   }
 });
 
+test("waitMs also caps waiting for another process's write lock, then the default returns", async () => {
+  const { mkdtemp, rm } = await import('node:fs/promises');
+  const directory = await mkdtemp('/tmp/location-lock-wait-');
+  const path = `${directory}/test.db`;
+  const db = new Database(path);
+  runMigrations(db);
+  const repo = new SqliteLocationRepository(db);
+  // Another process holds the database write lock, as a recompute there would.
+  const child = Bun.spawn(
+    [
+      process.execPath,
+      '-e',
+      `
+    import { Database } from 'bun:sqlite';
+    const db = new Database(process.env.TEST_SQLITE_PATH);
+    db.run('BEGIN IMMEDIATE');
+    console.log('locked');
+    await new Promise(() => {});
+  `,
+    ],
+    { env: { ...process.env, TEST_SQLITE_PATH: path }, stdout: 'pipe', stderr: 'pipe' },
+  );
+  try {
+    const ready = await child.stdout.getReader().read();
+    expect(new TextDecoder().decode(ready.value)).toContain('locked');
+
+    const startedAt = performance.now();
+    await expect(repo.withUserLock('u', async () => {}, { waitMs: 100 })).rejects.toThrow();
+    // Well under the 1 s default busy timeout.
+    expect(performance.now() - startedAt).toBeLessThan(600);
+    expect(db.query('PRAGMA busy_timeout').get()).toEqual({ timeout: 1000 });
+  } finally {
+    child.kill();
+    await child.exited;
+    db.close();
+    await rm(directory, { recursive: true });
+  }
+});
+
 test('SQLite releases its write lock and rolls back replay after a worker is killed', async () => {
   const { mkdtemp, rm } = await import('node:fs/promises');
   const directory = await mkdtemp('/tmp/location-replay-');
