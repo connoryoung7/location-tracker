@@ -45,9 +45,15 @@ export function positionAt(track, tst) {
   return [position, lat + (next[1] - lat) * share];
 }
 
-/** What the user was doing at `tst`, from the timeline rows, e.g. `At Home`. */
+/**
+ * What the user was doing at `tst`, from the timeline rows, e.g. `At Home`. A
+ * moment two entries share, a stop's departure and its trip's start, belongs
+ * to the one starting then; only the very last moment falls to the one ending.
+ */
 export function describeMoment(rows, tst) {
-  const row = rows.find((candidate) => candidate.startsAt <= tst && tst <= candidate.endsAt);
+  const row =
+    rows.find((candidate) => candidate.startsAt <= tst && tst < candidate.endsAt) ??
+    rows.find((candidate) => candidate.endsAt === tst);
   if (!row) return 'No location data';
   return row.kind === 'stop' ? `At ${row.label}` : `On the way: ${row.label}`;
 }

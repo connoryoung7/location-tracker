@@ -152,6 +152,14 @@ describe('describeMoment', () => {
     expect(describeMoment(ROWS, T + 4000)).toBe('On the way: Home → Fresh Market');
     expect(describeMoment(ROWS, T + 9999)).toBe('No location data');
   });
+
+  test('a moment two entries share belongs to the one starting then; the last to the one ending', () => {
+    // The stop's departure is the trip's start.
+    expect(describeMoment(ROWS, T + 3600)).toBe('On the way: Home → Fresh Market');
+    expect(describeMoment(ROWS, T)).toBe('At Home');
+    // The day's last moment still has an entry.
+    expect(describeMoment(ROWS, T + 4800)).toBe('On the way: Home → Fresh Market');
+  });
 });
 
 describe('attachDayTimeline', () => {
@@ -195,13 +203,15 @@ describe('attachDayTimeline', () => {
   });
 
   test('clicking a trip frames its route and jumps playback to it; a stop flies to it', () => {
-    const { map, markers, swap, fragment, click } = setup();
+    const { map, markers, swap, fragment, click, caption } = setup();
     map.fire('load');
     swap(fragment(VIEW));
 
     click('entry-2');
     expect(map.fitBounds).toHaveBeenLastCalledWith(ROWS[1]!.bounds, { padding: 60, maxZoom: 16 });
     expect(markers[0]!.position).toEqual(HOME);
+    // Captioned as the trip it jumped to, not the stop it set off from.
+    expect(caption()).toContain('On the way: Home → Fresh Market');
 
     click('entry-1');
     expect(map.flyTo).toHaveBeenCalledWith({ center: HOME, zoom: 16 });
