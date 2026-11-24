@@ -39,14 +39,47 @@ export function zonedDayRange(dateKey: string, timeZone: string): { from: number
   };
 }
 
-/** The instant (ms) the wall clock in `timeZone` reads 00:00 on the given day. */
+/**
+ * The first instant (ms) of the given day in `timeZone`: when its wall clock
+ * reads 00:00, or, in a zone whose clocks jump forward at midnight (Havana, on
+ * its daylight-saving day), the jump itself, since 00:00 never happens.
+ */
 function zonedMidnight(year: number, month: number, day: number, timeZone: string): number {
   const wallClock = Date.UTC(year, month - 1, day);
   // Midnight there is the wall-clock reading less the zone's UTC offset. The
   // offset is read near the answer, then re-read at it, in case the zone's
   // offset changes in between (a daylight-saving change that night).
   const guess = wallClock - offsetAt(wallClock, timeZone);
-  return wallClock - offsetAt(guess, timeZone);
+  const midnight = wallClock - offsetAt(guess, timeZone);
+
+  // Date.UTC normalises an overflowing day, so this is the day really meant.
+  const dateKey = new Date(wallClock).toISOString().slice(0, 10);
+  if (localDateKey(midnight, timeZone) === dateKey) return midnight;
+
+  // Still the day before: midnight fell in the gap. The day starts at the
+  // jump, the first second whose local date is `dateKey`; find it by halving.
+  let before = midnight;
+  let after = midnight + MAX_GAP_MS;
+  while (after - before > 1000) {
+    const middle = before + Math.floor((after - before) / 2000) * 1000;
+    if (localDateKey(middle, timeZone) >= dateKey) after = middle;
+    else before = middle;
+  }
+  return after;
+}
+
+/** Longer than any daylight-saving jump, which is at most an hour or two. */
+const MAX_GAP_MS = 6 * 3600 * 1000;
+
+/** The `YYYY-MM-DD` date the wall clock in `timeZone` shows at `instantMs`. */
+function localDateKey(instantMs: number, timeZone: string): string {
+  // `en-CA` formats dates as YYYY-MM-DD, which also sorts as a string.
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(instantMs);
 }
 
 /** How far ahead of UTC the wall clock in `timeZone` is at `instantMs` (ms). */

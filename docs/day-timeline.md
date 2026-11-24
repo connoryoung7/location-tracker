@@ -49,11 +49,14 @@ A trip is the movement from one stop's departure to the next stop's arrival.
 ### Days
 
 A day is a calendar day in the viewer's time zone, sent by the browser, so it is
-23 or 25 hours long on a daylight-saving change. Locations are read from 12 hours
+23 or 25 hours long on a daylight-saving change. Where clocks jump forward at
+midnight itself (Havana, for one), 00:00 never happens and the day starts at the
+jump. Locations are read from 12 hours
 before the day to 2 hours after it, so a stay that began the evening before (home
 overnight) is found whole, and the day's last stop can see when it ended. Stops
 are clipped to the day ("Until 7:42 AM", "From 10:00 PM", "All day"); a trip
-that crosses midnight is shown whole on both days.
+that crosses midnight is shown whole on both days, and playback places it where
+it was at midnight, so the slider has a position from the day's first second.
 
 ### Computed, not stored
 

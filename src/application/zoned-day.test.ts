@@ -29,6 +29,17 @@ describe('zonedDayRange', () => {
     expect(to - from).toBe(25 * 3600);
   });
 
+  test('a day whose midnight is skipped starts at the jump, and is 23 hours long', () => {
+    // Havana springs forward at 00:00: the clock goes from 23:59:59 to 01:00.
+    const { from, to } = zonedDayRange('2026-03-08', 'America/Havana');
+
+    expect(iso(from)).toBe('2026-03-08T05:00:00.000Z');
+    expect(iso(to)).toBe('2026-03-09T04:00:00.000Z');
+    expect(to - from).toBe(23 * 3600);
+    // The day before ends where this one starts, so no hour is in both.
+    expect(zonedDayRange('2026-03-07', 'America/Havana').to).toBe(from);
+  });
+
   test('works for zones ahead of UTC and with half-hour offsets', () => {
     expect(iso(zonedDayRange('2026-11-22', 'Asia/Kolkata').from)).toBe('2026-11-21T18:30:00.000Z');
     expect(iso(zonedDayRange('2026-11-22', 'UTC').from)).toBe('2026-11-22T00:00:00.000Z');

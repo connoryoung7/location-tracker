@@ -56,6 +56,11 @@ export function attachDayTimeline(map, { Marker, root = document }) {
   let isLoaded = false;
   /** Shows where the user was at the playback slider's time. */
   let marker = null;
+  /**
+   * Set when the source was missing for a moment, as it is while a basemap
+   * switch rebuilds the style, so the day is drawn once the new style loads.
+   */
+  let isRedrawPending = false;
   const list = root.getElementById('timeline');
 
   map.on('load', () => {
@@ -97,15 +102,32 @@ export function attachDayTimeline(map, { Marker, root = document }) {
     show(pendingView);
   });
 
+  function draw(view) {
+    const source = map.getSource(SOURCE_ID);
+    if (!source) {
+      isRedrawPending = true;
+      return;
+    }
+    source.setData(view ? view.featureCollection : EMPTY_COLLECTION);
+  }
+
   function show(view) {
     if (!isLoaded) return;
 
-    map.getSource(SOURCE_ID).setData(view ? view.featureCollection : EMPTY_COLLECTION);
+    draw(view);
     // Timelines are only ever fetched on request, so framing them never fights a poll.
     if (view?.bounds) {
       map.fitBounds(view.bounds, { padding: 60, maxZoom: 15 });
     }
   }
+
+  // The rebuilt style carries the source over with the data it last had; draw
+  // whatever arrived meanwhile, without framing the map again.
+  map.on('style.load', () => {
+    if (!isLoaded || !isRedrawPending) return;
+    isRedrawPending = false;
+    draw(pendingView);
+  });
 
   function removeMarker() {
     marker?.remove();

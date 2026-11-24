@@ -445,6 +445,7 @@ describe('GET /fragments/timeline', () => {
     distanceMeters: 3_240,
     isPathEstimated: false,
     isOngoing: false,
+    isFromOpenStreetMap: true,
     fromLabel: 'Home',
     toLabel: 'Fresh Market',
   };

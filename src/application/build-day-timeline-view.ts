@@ -1,4 +1,4 @@
-import type { DayTimeline, TimelineEntry } from '@/application/build-day-timeline.ts';
+import type { DayTimeline, TimelineEntry, TimelineTrip } from '@/application/build-day-timeline.ts';
 import { formatDuration } from '@/application/build-visited-place-view.ts';
 
 const LOCALE = 'en-US';
@@ -134,9 +134,8 @@ export function buildDayTimelineView(timeline: DayTimeline): DayTimelineView {
     featureCollection: { type: 'FeatureCollection', features },
     bounds: boundsOf(features.flatMap(positionsOf)),
     track: trackOf(timeline.entries, day),
-    usesOpenStreetMap: timeline.entries.some(
-      (entry) => entry.kind === 'stop' && entry.isFromOpenStreetMap,
-    ),
+    // A trip's label can name a stop from outside the day, so trips count too.
+    usesOpenStreetMap: timeline.entries.some((entry) => entry.isFromOpenStreetMap),
   };
 }
 
@@ -168,8 +167,9 @@ function formatDayLabel(dateKey: string): string {
 
 /**
  * Where the user was through the day, oldest first: a stop holds still from
- * arrival to departure, and a trip follows its route. Only points within the
- * day are kept, so playback runs from midnight to midnight.
+ * arrival to departure, and a trip follows its route. Only the day is kept, so
+ * playback runs from midnight to midnight; a route crossing either end gets a
+ * point where it crosses, so playback has a position right from midnight.
  */
 function trackOf(
   entries: TimelineEntry[],
@@ -181,11 +181,38 @@ function trackOf(
           [entry.lon, entry.lat, Math.max(entry.arrivedAt, day.from)],
           [entry.lon, entry.lat, Math.min(entry.departedAt, day.to)],
         ]
-      : entry.path
-          .filter((point) => point.tst >= day.from && point.tst <= day.to)
-          .map((point): [number, number, number] => [point.lon, point.lat, point.tst]),
+      : clipPath(entry.path, day.from, day.to).map((point): [number, number, number] => [
+          point.lon,
+          point.lat,
+          point.tst,
+        ]),
   );
   return points.sort((a, b) => a[2] - b[2]);
+}
+
+type PathPoint = TimelineTrip['path'][number];
+
+/** The part of `path` from `from` to `to`, with a point added wherever it crosses either. */
+function clipPath(path: PathPoint[], from: number, to: number): PathPoint[] {
+  const clipped: PathPoint[] = [];
+  path.forEach((point, index) => {
+    const previous = path[index - 1];
+    if (previous) {
+      for (const edge of [from, to]) {
+        if (previous.tst < edge && point.tst > edge) {
+          clipped.push(pointAt(previous, point, edge));
+        }
+      }
+    }
+    if (point.tst >= from && point.tst <= to) clipped.push(point);
+  });
+  return clipped;
+}
+
+/** Where a straight line from `a` to `b` is at `tst`. */
+function pointAt(a: PathPoint, b: PathPoint, tst: number): PathPoint {
+  const share = (tst - a.tst) / (b.tst - a.tst);
+  return { lat: a.lat + (b.lat - a.lat) * share, lon: a.lon + (b.lon - a.lon) * share, tst };
 }
 
 function positionsOf(feature: TimelineFeature): Position[] {

@@ -48,8 +48,13 @@ const VIEW = {
 function fakeMap() {
   const handlers: Record<string, Handler[]> = {};
   const source = { setData: mock((_data: unknown) => {}) };
+  /** False while a basemap switch is rebuilding the style. */
+  let hasSource = true;
   return {
     source,
+    setHasSource(value: boolean) {
+      hasSource = value;
+    },
     on(event: string, handler: Handler) {
       (handlers[event] ??= []).push(handler);
     },
@@ -58,7 +63,7 @@ function fakeMap() {
     },
     addSource: mock(() => {}),
     addLayer: mock((_layer: { id: string }) => {}),
-    getSource: () => source,
+    getSource: () => (hasSource ? source : undefined),
     fitBounds: mock((_bounds: unknown, _options: unknown) => {}),
     flyTo: mock((_options: unknown) => {}),
     getZoom: () => 12,
@@ -200,6 +205,26 @@ describe('attachDayTimeline', () => {
     swap('<p class="notice">Could not build the timeline. Please retry.</p>');
 
     expect(map.source.setData).not.toHaveBeenCalled();
+  });
+
+  test('a day arriving while the basemap style rebuilds is drawn once it has loaded', () => {
+    const { map, swap, fragment, timeline } = setup();
+    map.fire('load');
+    map.source.setData.mockClear();
+    map.setHasSource(false);
+
+    swap(fragment(VIEW));
+    expect(() => timeline.clear()).not.toThrow();
+    swap(fragment(VIEW));
+    expect(map.source.setData).not.toHaveBeenCalled();
+
+    map.setHasSource(true);
+    map.fitBounds.mockClear();
+    map.fire('style.load');
+
+    expect(map.source.setData).toHaveBeenLastCalledWith(VIEW.featureCollection);
+    // A redraw after a theme change does not move the map.
+    expect(map.fitBounds).not.toHaveBeenCalled();
   });
 
   test('clear drops the day, its features and the marker, as a user switch needs', () => {

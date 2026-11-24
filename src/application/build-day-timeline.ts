@@ -40,6 +40,11 @@ export type TimelineStop = {
 /** A stretch of travel, with where it set off from and went to when known. */
 export type TimelineTrip = Trip & {
   kind: 'trip';
+  /**
+   * Whether a name in the trip's label came from OpenStreetMap. Kept on the
+   * trip itself, since the stop it names may lie outside the day and be left out.
+   */
+  isFromOpenStreetMap: boolean;
   /** Absent when the trip was already under way when the history starts. */
   fromLabel?: string;
   /** Absent when the user had not stopped again by the last fix. */
@@ -209,6 +214,7 @@ function toTrip(
     distanceMeters: distance,
     isPathEstimated,
     isOngoing,
+    isFromOpenStreetMap: Boolean(from?.isFromOpenStreetMap || to?.isFromOpenStreetMap),
     ...(from ? { fromLabel: from.label } : {}),
     ...(to ? { toLabel: to.label } : {}),
   };

@@ -99,6 +99,7 @@ describe('buildDayTimeline', () => {
       toLabel: 'Unknown place',
       isPathEstimated: false,
       isOngoing: false,
+      isFromOpenStreetMap: false,
     });
     // Both stops' centres, with every fix on the way between them.
     expect(trip!.path).toHaveLength(ON_THE_WAY.length + 2);
@@ -206,7 +207,12 @@ describe('buildDayTimeline', () => {
       category: 'Grocery store',
       isFromOpenStreetMap: true,
     });
-    expect(trips(entries)[0]).toMatchObject({ fromLabel: 'Home', toLabel: 'Fresh Market' });
+    // The trip carries the credit too, for when the looked-up stop is outside the day.
+    expect(trips(entries)[0]).toMatchObject({
+      fromLabel: 'Home',
+      toLabel: 'Fresh Market',
+      isFromOpenStreetMap: true,
+    });
     // Home is one of the user's areas, so it is never sent to the place finder.
     expect(findNearbyPlaces).toHaveBeenCalledTimes(1);
   });

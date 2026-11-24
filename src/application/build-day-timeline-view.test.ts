@@ -39,6 +39,7 @@ function trip(overrides: Partial<TimelineTrip> = {}): TimelineTrip {
     distanceMeters: 3_240,
     isPathEstimated: false,
     isOngoing: false,
+    isFromOpenStreetMap: false,
     fromLabel: 'Home',
     toLabel: 'Fresh Market',
     ...overrides,
@@ -177,6 +178,39 @@ describe('buildDayTimelineView', () => {
       [-71.0825, 42.3525, DAY.from + 9 * HOUR + 600],
       [MARKET.lon, MARKET.lat, DAY.from + 9 * HOUR + 23 * 60],
     ]);
+  });
+
+  test('a route crossing midnight gives playback a position from the very start and end', () => {
+    const crossing = (from: number, to: number) =>
+      trip({
+        startedAt: from,
+        endedAt: to,
+        path: [
+          { ...HOME, tst: from },
+          { ...MARKET, tst: to },
+        ],
+      });
+    const view = buildDayTimelineView(
+      timeline([crossing(DAY.from - 600, DAY.from + 600), crossing(DAY.to - 600, DAY.to + 600)]),
+    );
+
+    const midway = [(HOME.lon + MARKET.lon) / 2, (HOME.lat + MARKET.lat) / 2];
+    expect(view.track[0]![2]).toBe(DAY.from);
+    expect(view.track[0]![0]).toBeCloseTo(midway[0]!, 6);
+    expect(view.track[0]![1]).toBeCloseTo(midway[1]!, 6);
+    expect(view.track.at(-1)![2]).toBe(DAY.to);
+    expect(view.track.every(([, , tst]) => tst >= DAY.from && tst <= DAY.to)).toBe(true);
+  });
+
+  test('credits OpenStreetMap for a trip naming a looked-up stop outside the day', () => {
+    const view = buildDayTimelineView(
+      timeline([
+        trip({ isFromOpenStreetMap: true, startedAt: DAY.from - 600 }),
+        stop({ ...MARKET, label: 'Home' }),
+      ]),
+    );
+
+    expect(view.usesOpenStreetMap).toBe(true);
   });
 
   test('an empty day has no rows, features or bounds', () => {
