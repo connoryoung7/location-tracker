@@ -99,6 +99,11 @@ export interface AreaProjection {
   replaceAll(areas: Area[]): Promise<void>;
   /** Areas currently in the index. Only the cutover import reads these. */
   listAllAreas(): Promise<Area[]>;
+  /**
+   * Every user with any slice in the index, even one too incomplete to read
+   * back as areas, so a rebuild can clear it.
+   */
+  listProjectedUserIds(): Promise<string[]>;
   healthCheck(): Promise<void>;
 }
 

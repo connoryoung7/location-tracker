@@ -22,6 +22,8 @@ const metrics = new PrometheusMetricsCollector();
 const redis = createRedisClient(config.redisUrl);
 const store = openAreaStore(config);
 const areaRepo = createAreaRepository(store, redis, logger);
+// Heals any user whose index write failed, even with no one reading areas.
+areaRepo.startRepairing();
 const repo =
   store.kind === 'postgres'
     ? new PostgresLocationRepository(store.sql)

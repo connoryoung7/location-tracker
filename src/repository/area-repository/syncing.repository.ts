@@ -1,14 +1,53 @@
 import type { RedisClient } from 'bun';
 import type { Area } from '@/domain/types.ts';
 import type { AreaProjection, AreaRepository, Logger } from '@/domain/ports.ts';
-import { areaProjectionDirtyKey } from '@/infrastructure/redis/keys.ts';
+import {
+  areaProjectionDirtyKey,
+  areaProjectionDirtyVersionsKey,
+} from '@/infrastructure/redis/keys.ts';
+import {
+  AreaLockBusyError,
+  NO_ANSWER,
+  RedisAreaLock,
+  answerWithin,
+} from '@/repository/area-repository/redis.area-lock.ts';
+
+/** Longest an area write waits for another writer of the same user. */
+const WRITE_LOCK_WAIT_MS = 1_000;
+/** Longest a repair or rebuild waits for one user before leaving them for the next pass. */
+const REPAIR_LOCK_WAIT_MS = 100;
+/** How often {@link SyncingAreaRepository.startRepairing} looks for dirty users. */
+const REPAIR_INTERVAL_MS = 10_000;
+/** Longest a dirty marker waits for Redis before it is kept in-process instead. */
+const MARK_DIRTY_TIMEOUT_MS = 1_000;
+/** Bumps the user's dirty count and marks them dirty, in one step. */
+const MARK_DIRTY_SCRIPT = `
+redis.call('HINCRBY', KEYS[2], ARGV[1], 1)
+return redis.call('SADD', KEYS[1], ARGV[1])
+`;
+/** Clears the user's dirty mark only if their count is still the one given; 1 if it was. */
+const CLEAR_DIRTY_SCRIPT = `
+if (redis.call('HGET', KEYS[2], ARGV[1]) or '0') == ARGV[2] then
+  return redis.call('SREM', KEYS[1], ARGV[1])
+end
+return 0
+`;
 
 /**
  * Keeps the Redis geofence index in step with the area record of truth.
  *
- * Writes go to the source first, then the projection. A projection write that
- * fails is **not** fatal -- the source stays correct and the affected user is
- * marked dirty so the next read repairs them. Reads always come from the source.
+ * Each write goes to the source first, committed on its own, then to the
+ * projection, both holding the user's area lock ({@link RedisAreaLock}).
+ * Writes for one user therefore reach both stores in the same order from every
+ * process: without it, two edits of one area could land in the source as A
+ * then B but in Redis as B then A, and geofencing would keep using the older
+ * circle. And since the source has committed before Redis is touched, Redis
+ * never holds a change the source then rolled back.
+ *
+ * A projection write that fails is **not** fatal -- the source stays correct
+ * and the affected user is marked dirty for a repair. Repairs rebuild a user
+ * from the source under the same lock, on a timer (see {@link startRepairing}).
+ * Reads always come from the source and never repair.
  *
  * This mirrors the fan-out shape of `CompositeEventPublisher`: one failing sink
  * must not take down the request.
@@ -18,11 +57,16 @@ export class SyncingAreaRepository implements AreaRepository {
   private projection: AreaProjection;
   private redis: RedisClient;
   private logger: Logger;
+  private lock: RedisAreaLock;
   /**
-   * Users whose dirty marker could not be stored in Redis (it was unreachable).
-   * Kept in-process so repairDrift can still find them once Redis returns.
+   * Users whose dirty marker could not be stored in Redis (it was unreachable),
+   * each with how many times that happened. Kept in-process so repairDrift can
+   * still find them once Redis returns; counted for the same reason as
+   * {@link areaProjectionDirtyVersionsKey}.
    */
-  private localDirtyUserIds = new Set<string>();
+  private localDirtyVersions = new Map<string, number>();
+  private repairTimer: ReturnType<typeof setInterval> | undefined;
+  private isRepairing = false;
 
   constructor(
     source: AreaRepository,
@@ -34,6 +78,9 @@ export class SyncingAreaRepository implements AreaRepository {
     this.projection = projection;
     this.redis = redis;
     this.logger = logger;
+    // A write or repair whose lock expired under it may have written a stale
+    // index, so that user is rebuilt by the next repair.
+    this.lock = new RedisAreaLock(redis, logger, (userId) => this.markDirty(userId));
   }
 
   /**
@@ -77,51 +124,90 @@ export class SyncingAreaRepository implements AreaRepository {
     setTimeout(attempt, retryMs).unref();
   }
 
-  /** Rewrites the whole projection from the source. */
+  /**
+   * Rewrites the whole projection from the source, one user at a time under
+   * their lock (see {@link reprojectUser}). Covers users the source, the index,
+   * or the dirty set knows about. The index's users are found from its
+   * metadata keys, so a slice left half-written by a failed write is found and
+   * cleared even when its areas can no longer be read back whole.
+   *
+   * A user that cannot be rebuilt now, because their lock is busy or a write
+   * fails, is marked dirty, and the repair timer retries them.
+   */
   async rebuildProjection(): Promise<void> {
     const areas = await this.source.listAllAreas();
-    await this.projection.replaceAll(areas);
-    await this.redis.del(areaProjectionDirtyKey());
-    this.logger.info(`Projected ${areas.length} areas into the geofence index`);
-  }
+    const userIds = new Set([
+      ...areas.map((area) => area.userId),
+      ...(await this.projection.listProjectedUserIds()),
+      ...(await this.redis.smembers(areaProjectionDirtyKey())),
+    ]);
 
-  async addArea(area: Area): Promise<void> {
-    await this.source.addArea(area);
-    await this.project(area.userId, () => this.projection.applyArea(area));
+    let deferred = 0;
+    for (const userId of userIds) {
+      if (!(await this.reprojectUser(userId))) {
+        deferred += 1;
+        await this.markDirty(userId);
+      }
+    }
+    this.logger.info(
+      `Projected ${areas.length} areas into the geofence index` +
+        (deferred ? `; ${deferred} users left for repair` : ''),
+    );
   }
 
   /**
-   * Projects only an update the source actually made. The projection upserts, so
-   * a delete that lands between the two writes would otherwise be undone in the
-   * index: that delete has already cleared it, and applying the edit afterwards
-   * would bring the area back. Re-reading the source after applying catches that
-   * from any process, and drops the area from the index again.
+   * Repairs dirty users every {@link REPAIR_INTERVAL_MS} until stopped. Every
+   * entrypoint starts it, ingestion included, so a failed write or rebuild heals
+   * even with no one reading areas.
    */
+  startRepairing(intervalMs: number = REPAIR_INTERVAL_MS): void {
+    if (this.repairTimer) return;
+    this.repairTimer = setInterval(() => {
+      // A slow pass must not overlap the next one.
+      if (this.isRepairing) return;
+      this.isRepairing = true;
+      this.repairDrift().finally(() => {
+        this.isRepairing = false;
+      });
+    }, intervalMs);
+    this.repairTimer.unref();
+  }
+
+  stopRepairing(): void {
+    clearInterval(this.repairTimer);
+    this.repairTimer = undefined;
+  }
+
+  async addArea(area: Area): Promise<void> {
+    await this.write(
+      area.userId,
+      () => this.source.addArea(area),
+      () => this.projection.applyArea(area),
+    );
+  }
+
+  /** Projects only an update the source actually made. */
   async updateArea(area: Area): Promise<boolean> {
-    if (!(await this.source.updateArea(area))) {
-      return false;
-    }
-    await this.project(area.userId, async () => {
-      await this.projection.applyArea(area);
-      if (!(await this.source.getArea(area.userId, area.id))) {
-        await this.projection.removeArea(area.userId, area.id);
-      }
-    });
-    return true;
+    return this.write(
+      area.userId,
+      () => this.source.updateArea(area),
+      (isUpdated) => (isUpdated ? this.projection.applyArea(area) : undefined),
+    );
   }
 
   async removeArea(userId: string, areaId: string): Promise<void> {
-    await this.source.removeArea(userId, areaId);
-    await this.project(userId, () => this.projection.removeArea(userId, areaId));
+    await this.write(
+      userId,
+      () => this.source.removeArea(userId, areaId),
+      () => this.projection.removeArea(userId, areaId),
+    );
   }
 
   async listAreas(userId: string): Promise<Area[]> {
-    await this.repairDrift();
     return this.source.listAreas(userId);
   }
 
   async listAllAreas(): Promise<Area[]> {
-    await this.repairDrift();
     return this.source.listAllAreas();
   }
 
@@ -147,6 +233,64 @@ export class SyncingAreaRepository implements AreaRepository {
     await this.projection.healthCheck();
   }
 
+  /**
+   * Re-projects every dirty user it can. The repair timer calls this; a user
+   * whose lock is busy, or whose rewrite fails, stays dirty for the next pass.
+   * A no-op beyond one SMEMBERS when nothing is dirty.
+   */
+  async repairDrift(): Promise<void> {
+    let redisDirtyUserIds: string[];
+    try {
+      redisDirtyUserIds = await this.redis.smembers(areaProjectionDirtyKey());
+    } catch {
+      // Redis still down; the next pass tries again.
+      return;
+    }
+
+    const dirtyUserIds = new Set([...redisDirtyUserIds, ...this.localDirtyVersions.keys()]);
+    for (const userId of dirtyUserIds) {
+      if (await this.reprojectUser(userId)) {
+        this.logger.info(`Repaired projected areas for ${userId}`);
+      }
+    }
+  }
+
+  /**
+   * One area write, holding the user's area lock: the source first, then, from
+   * what it returned, the index. A busy lock rejects the write, so the caller
+   * can retry. If Redis cannot be reached at all, the index cannot be written
+   * either, so the write goes to the source alone and the user is marked dirty
+   * for the repair, which takes the lock once Redis is back. The index is never
+   * written without the lock.
+   */
+  private async write<T>(
+    userId: string,
+    writeSource: () => T | Promise<T>,
+    writeIndex: (result: T) => Promise<void> | undefined,
+  ): Promise<T> {
+    let hasStarted = false;
+    try {
+      return await this.lock.withLock(
+        userId,
+        async () => {
+          hasStarted = true;
+          const result = await writeSource();
+          await this.project(userId, async () => {
+            await writeIndex(result);
+          });
+          return result;
+        },
+        WRITE_LOCK_WAIT_MS,
+      );
+    } catch (error) {
+      if (hasStarted || error instanceof AreaLockBusyError) throw error;
+      this.logger.warn(`Area lock unreachable for ${userId}; writing the store only`, error);
+      const result = await writeSource();
+      await this.markDirty(userId);
+      return result;
+    }
+  }
+
   private async project(userId: string, write: () => Promise<void>): Promise<void> {
     try {
       await write();
@@ -161,39 +305,71 @@ export class SyncingAreaRepository implements AreaRepository {
 
   private async markDirty(userId: string): Promise<void> {
     try {
-      await this.redis.sadd(areaProjectionDirtyKey(), userId);
+      const answer = await answerWithin(
+        this.redis.send('EVAL', [
+          MARK_DIRTY_SCRIPT,
+          '2',
+          areaProjectionDirtyKey(),
+          areaProjectionDirtyVersionsKey(),
+          userId,
+        ]),
+        MARK_DIRTY_TIMEOUT_MS,
+      );
+      if (answer === NO_ANSWER) throw new Error('Redis did not answer');
     } catch (error) {
-      // Redis is unreachable, so the marker cannot be stored there. Remember it
-      // in-process so repairDrift can re-project once Redis is back.
-      this.localDirtyUserIds.add(userId);
+      // Redis is unreachable, or not answering, so the marker cannot be stored
+      // there. Remember it in-process so repairDrift can re-project once Redis
+      // is back.
+      this.localDirtyVersions.set(userId, (this.localDirtyVersions.get(userId) ?? 0) + 1);
       this.logger.error(`Failed to mark ${userId} dirty in Redis; tracking locally`, error);
     }
   }
 
-  /**
-   * Re-projects any user whose write failed earlier. Called from reads so the
-   * index self-heals without a background process -- the map UI's poll is enough
-   * to trigger it. A no-op beyond one SMEMBERS when nothing is dirty.
-   */
-  private async repairDrift(): Promise<void> {
-    let redisDirtyUserIds: string[];
-    try {
-      redisDirtyUserIds = await this.redis.smembers(areaProjectionDirtyKey());
-    } catch {
-      // Redis still down. Reads come from the source, so serve them anyway.
-      return;
-    }
+  /** How many times the user has been marked dirty in Redis, as the clear script compares it. */
+  private async dirtyVersion(userId: string): Promise<string> {
+    return (await this.redis.hget(areaProjectionDirtyVersionsKey(), userId)) ?? '0';
+  }
 
-    const dirtyUserIds = new Set([...redisDirtyUserIds, ...this.localDirtyUserIds]);
-    for (const userId of dirtyUserIds) {
-      try {
-        await this.projection.replaceUserAreas(userId, await this.source.listAreas(userId));
-        this.localDirtyUserIds.delete(userId);
-        await this.redis.srem(areaProjectionDirtyKey(), userId);
-        this.logger.info(`Repaired projected areas for ${userId}`);
-      } catch (error) {
-        this.logger.error(`Failed to repair projected areas for ${userId}`, error);
-      }
+  /**
+   * Rewrites one user's index from the source, holding their area lock, so no
+   * write for them is half done: a repair can never write an older circle back
+   * over a newer one.
+   *
+   * The lock can still be lost under a stalled repair, and a write that gives up
+   * on the lock writes the store alone; either may mark the user dirty while the
+   * repair is writing an older snapshot. So the user's dirty count is read
+   * before the store, and the user is only called clean if the count has not
+   * moved since: a mark made during the repair stays, for the next pass.
+   *
+   * Resolves false, leaving the user dirty, if the lock stays busy for
+   * {@link REPAIR_LOCK_WAIT_MS}, Redis is unreachable, or the rewrite fails.
+   */
+  private async reprojectUser(userId: string): Promise<boolean> {
+    try {
+      await this.lock.withLock(
+        userId,
+        async () => {
+          const version = await this.dirtyVersion(userId);
+          const localVersion = this.localDirtyVersions.get(userId);
+          await this.projection.replaceUserAreas(userId, await this.source.listAreas(userId));
+          if (this.localDirtyVersions.get(userId) === localVersion) {
+            this.localDirtyVersions.delete(userId);
+          }
+          await this.redis.send('EVAL', [
+            CLEAR_DIRTY_SCRIPT,
+            '2',
+            areaProjectionDirtyKey(),
+            areaProjectionDirtyVersionsKey(),
+            userId,
+            version,
+          ]);
+        },
+        REPAIR_LOCK_WAIT_MS,
+      );
+      return true;
+    } catch (error) {
+      this.logger.warn(`Could not re-project areas for ${userId}; will retry`, error);
+      return false;
     }
   }
 }

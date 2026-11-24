@@ -110,11 +110,12 @@ UI works even when Redis is down.
 ### Staying consistent
 
 - **Boot rebuild.** Every entrypoint calls `initialize()` before serving traffic,
-  which rewrites the whole index from the store. A lost Redis volume self-heals on
-  the next restart.
+  which rewrites the whole index from the store, user by user. A lost Redis volume
+  self-heals on the next restart.
 - **Dirty marking.** A projection write that fails is logged, not fatal — the store
-  is already correct. The user is added to `area:projection-dirty` and the next read
-  re-projects them, so the index self-heals without a background process.
+  is already correct. The user is added to `area:projection-dirty`, and a repair
+  timer that every entrypoint starts (ingestion included) re-projects dirty users
+  every 10 s, so the index self-heals even when nobody is reading areas.
 - **Membership is preserved.** A rebuild rewrites area definitions but deliberately
   leaves `geofence:inside` and `geofence:pending-exit` alone, so a user already
   inside an area does not re-enter it and fire a duplicate event. State for areas
@@ -122,8 +123,37 @@ UI works even when Redis is down.
 - **Edits never resurrect.** `updateArea` is a single `UPDATE … WHERE id AND
   user_id` that reports whether a row changed, so an edit racing a delete cannot
   re-insert the area the way the `addArea` upsert would. Only a successful update
-  is projected, and the store is re-read afterwards: if a delete landed between
-  the two writes, the area is dropped from the index again.
+  is projected.
+- **Writes are serialized per user.** Every create, edit, and delete holds the
+  user's area lock, `area:lock:<user>` in Redis, from its store write until its
+  index write is done. So writes reach the store and the index in the same order
+  from every process: two edits of one area can't leave Redis on the older
+  circle, and a delete can't be undone by an edit finishing after it.
+  - The store write commits on its own before Redis is touched, so Redis never
+    holds a change the store then rolled back, and no database transaction is
+    held open while Redis is written.
+  - The lock is a `SET NX` with a 10 s expiry, released only by the holder that
+    took it. A writer waits up to 1 s for it; an edit that times out answers `503`
+    and the form keeps the changes. A holder that crashes leaves the lock to
+    expire, and the boot rebuild repairs its half-done write.
+  - A holder that stalls past the expiry can lose the lock to another writer and
+    then write a stale index. It finds out when it releases, and marks the user
+    dirty, so the repair rebuilds them from the store.
+  - With Redis unreachable, or not answering the lock request in time, there is
+    no lock, but no index to write either: the write goes to the store alone and
+    the user is marked dirty. The index is never written without the lock.
+- **Repairs hold the lock too.** Each user is rebuilt from the store under their
+  lock, so a repair never writes an older circle back over a newer one. Marking a
+  user dirty also bumps a per-user count (`area:projection-dirty-versions`), and a
+  repair only clears the user if the count is unchanged since it read the store,
+  so a write marking them dirty mid-repair (one that lost its lock, or wrote the
+  store alone) is never forgotten.
+  - A repair timer that every entrypoint starts (ingestion included) repairs dirty
+    users every 10 s, waiting at most 100 ms per user; a busy user waits for the
+    next pass. Reads never repair.
+  - The boot rebuild finds the index's users from its metadata keys, so a slice
+    left half-written by a failed write is cleared even when it no longer reads
+    back as whole areas. A user it can't rebuild is marked dirty for the timer.
 
 ### The one-time cutover
 

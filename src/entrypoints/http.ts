@@ -107,6 +107,8 @@ if (await waitForRedis(redis)) {
   logger.warn('Redis not reachable at startup; geofencing is degraded until it returns');
   areaRepo.initializeInBackground();
 }
+// Heals any user whose index write failed, so geofencing recovers here too.
+areaRepo.startRepairing();
 
 const app = createHttpServer(deps);
 
