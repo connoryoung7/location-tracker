@@ -25,6 +25,14 @@ import { areaProjectionDirtyKey } from '@/infrastructure/redis/keys.ts';
  * wait at 250 ms.
  */
 const USER_LOCK_WAIT_MS = 1_000;
+/**
+ * How long a repair, which runs on reads, waits for the user's lock before
+ * leaving the user dirty for the next read. Short, so a read is never held up
+ * for long by a write, or by its own caller holding the lock.
+ */
+const REPAIR_LOCK_WAIT_MS = 100;
+/** The boot rebuild runs before traffic is served, so it can wait longer per user. */
+const REBUILD_LOCK_WAIT_MS = 5_000;
 
 export class SyncingAreaRepository implements AreaRepository {
   private source: AreaRepository;
@@ -93,12 +101,31 @@ export class SyncingAreaRepository implements AreaRepository {
     setTimeout(attempt, retryMs).unref();
   }
 
-  /** Rewrites the whole projection from the source. */
+  /**
+   * Rewrites the whole projection from the source, one user at a time under
+   * their lock (see {@link reprojectUser}). Covers users only the source, only
+   * the index, or only the dirty set knows about, so stale slices are cleared
+   * too. A user whose lock stays busy is marked dirty for the next read.
+   */
   async rebuildProjection(): Promise<void> {
     const areas = await this.source.listAllAreas();
-    await this.projection.replaceAll(areas);
-    await this.redis.del(areaProjectionDirtyKey());
-    this.logger.info(`Projected ${areas.length} areas into the geofence index`);
+    const userIds = new Set([
+      ...areas.map((area) => area.userId),
+      ...(await this.projection.listAllAreas()).map((area) => area.userId),
+      ...(await this.redis.smembers(areaProjectionDirtyKey())),
+    ]);
+
+    let skipped = 0;
+    for (const userId of userIds) {
+      if (!(await this.reprojectUser(userId, REBUILD_LOCK_WAIT_MS))) {
+        skipped += 1;
+        await this.markDirty(userId);
+      }
+    }
+    this.logger.info(
+      `Projected ${areas.length} areas into the geofence index` +
+        (skipped ? `; ${skipped} busy users left for repair` : ''),
+    );
   }
 
   async addArea(area: Area): Promise<void> {
@@ -207,12 +234,6 @@ export class SyncingAreaRepository implements AreaRepository {
    * Re-projects any user whose write failed earlier. Called from reads so the
    * index self-heals without a background process -- the map UI's poll is enough
    * to trigger it. A no-op beyond one SMEMBERS when nothing is dirty.
-   *
-   * Repairs take no lock: recompute reads areas while holding the user's lock,
-   * and that lock is not re-entrant. A write can therefore land between a
-   * repair's read and its projection write and be overwritten by the older
-   * snapshot. So the user stays dirty unless the source, read again afterwards,
-   * still matches what was projected; the next read then repairs from fresh data.
    */
   private async repairDrift(): Promise<void> {
     let redisDirtyUserIds: string[];
@@ -225,33 +246,39 @@ export class SyncingAreaRepository implements AreaRepository {
 
     const dirtyUserIds = new Set([...redisDirtyUserIds, ...this.localDirtyUserIds]);
     for (const userId of dirtyUserIds) {
-      try {
-        const projected = await this.source.listAreas(userId);
-        await this.projection.replaceUserAreas(userId, projected);
-        if (!isSameProjection(projected, await this.source.listAreas(userId))) {
-          this.logger.info(`Areas for ${userId} changed during repair; repairing again next read`);
-          continue;
-        }
-        this.localDirtyUserIds.delete(userId);
-        await this.redis.srem(areaProjectionDirtyKey(), userId);
+      if (await this.reprojectUser(userId, REPAIR_LOCK_WAIT_MS)) {
         this.logger.info(`Repaired projected areas for ${userId}`);
-      } catch (error) {
-        this.logger.error(`Failed to repair projected areas for ${userId}`, error);
       }
     }
   }
-}
 
-/**
- * Whether two reads of a user's areas project the same index: same areas,
- * names, centres and radii. Categories are not projected, so they are ignored.
- */
-function isSameProjection(a: Area[], b: Area[]): boolean {
-  const key = (areas: Area[]) =>
-    JSON.stringify(
-      areas
-        .map(({ id, name, lat, lon, radius }) => [id, name, lat, lon, radius])
-        .sort(([idA], [idB]) => String(idA).localeCompare(String(idB))),
-    );
-  return key(a) === key(b);
+  /**
+   * Rewrites one user's index from the source, holding their lock. Area writes
+   * commit only when they release it, so the source then holds every write that
+   * has already reached the index: without the lock, a repair could read the
+   * old circle while an edit's new one sat in Redis uncommitted, write the old
+   * one back, and call the user clean. The dirty marker is cleared inside the
+   * lock for the same reason.
+   *
+   * Resolves false, leaving the user dirty, if the lock stays busy for `waitMs`
+   * or the rewrite fails. A read made while holding the lock, as recompute's is,
+   * therefore just gives up after `waitMs` instead of waiting for itself.
+   */
+  private async reprojectUser(userId: string, waitMs: number): Promise<boolean> {
+    try {
+      await this.userLock.withUserLock(
+        userId,
+        async () => {
+          await this.projection.replaceUserAreas(userId, await this.source.listAreas(userId));
+          this.localDirtyUserIds.delete(userId);
+          await this.redis.srem(areaProjectionDirtyKey(), userId);
+        },
+        { waitMs },
+      );
+      return true;
+    } catch (error) {
+      this.logger.warn(`Could not re-project areas for ${userId}; will retry`, error);
+      return false;
+    }
+  }
 }

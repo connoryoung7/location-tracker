@@ -110,8 +110,8 @@ UI works even when Redis is down.
 ### Staying consistent
 
 - **Boot rebuild.** Every entrypoint calls `initialize()` before serving traffic,
-  which rewrites the whole index from the store. A lost Redis volume self-heals on
-  the next restart.
+  which rewrites the whole index from the store, user by user. A lost Redis volume
+  self-heals on the next restart.
 - **Dirty marking.** A projection write that fails is logged, not fatal — the store
   is already correct. The user is added to `area:projection-dirty` and the next read
   re-projects them, so the index self-heals without a background process.
@@ -137,11 +137,14 @@ UI works even when Redis is down.
     for the busy timeout and for queueing behind another writer in the same
     process. An edit that times out, for example during a long recompute, answers
     `503` and the form keeps the changes.
-- **Repairs check their own work.** A repair runs on reads, which can happen
-  while the user's lock is held (recompute reads areas under it), so a repair
-  takes no lock. Instead it re-reads the store after rewriting the user's index,
-  and leaves the user dirty if a write landed in between, so the next read
-  repairs again from fresh data.
+- **Repairs and the boot rebuild hold the lock too.** Writes commit only when
+  they release the lock, after Redis already has the change, so an unlocked
+  rebuild could read the old circle, write it back over the new one, and call
+  the user clean. Each user is rebuilt from the store under their lock, and their
+  dirty marker is cleared inside it. A repair runs on reads, which recompute makes
+  while holding the lock, so it waits at most 100 ms and otherwise leaves the
+  user dirty for the next read. The boot rebuild waits up to 5 s per user and
+  marks any still-busy user dirty.
 
 ### The one-time cutover
 
