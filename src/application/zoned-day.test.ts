@@ -40,6 +40,16 @@ describe('zonedDayRange', () => {
     expect(zonedDayRange('2026-03-07', 'America/Havana').to).toBe(from);
   });
 
+  test('a day whose midnight happens twice starts at the first, and is 25 hours long', () => {
+    // Amman fell back from 01:00 to 00:00 on 2021-10-29, so 00:00 came round twice.
+    const { from, to } = zonedDayRange('2021-10-29', 'Asia/Amman');
+
+    expect(iso(from)).toBe('2021-10-28T21:00:00.000Z');
+    expect(iso(to)).toBe('2021-10-29T22:00:00.000Z');
+    expect(to - from).toBe(25 * 3600);
+    expect(zonedDayRange('2021-10-28', 'Asia/Amman').to).toBe(from);
+  });
+
   test('works for zones ahead of UTC and with half-hour offsets', () => {
     expect(iso(zonedDayRange('2026-11-22', 'Asia/Kolkata').from)).toBe('2026-11-21T18:30:00.000Z');
     expect(iso(zonedDayRange('2026-11-22', 'UTC').from)).toBe('2026-11-22T00:00:00.000Z');

@@ -128,6 +128,17 @@ describe('positionAt', () => {
     expect(positionAt(track, T + 4800)).toEqual(MARKET);
   });
 
+  test('takes the short way over the 180° meridian', () => {
+    const overTheMeridian: [number, number, number][] = [
+      [179, -17, T],
+      [-179, -17, T + 100],
+    ];
+
+    expect(Math.abs(positionAt(overTheMeridian, T + 50)![0])).toBeCloseTo(180, 6);
+    expect(positionAt(overTheMeridian, T + 25)![0]).toBeCloseTo(179.5, 6);
+    expect(positionAt(overTheMeridian, T + 75)![0]).toBeCloseTo(-179.5, 6);
+  });
+
   test('is nowhere before the track starts or after it ends', () => {
     expect(positionAt(track, T - 1)).toBeNull();
     expect(positionAt(track, T + 4801)).toBeNull();

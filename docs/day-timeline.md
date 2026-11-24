@@ -51,7 +51,8 @@ A trip is the movement from one stop's departure to the next stop's arrival.
 A day is a calendar day in the viewer's time zone, sent by the browser, so it is
 23 or 25 hours long on a daylight-saving change. Where clocks jump forward at
 midnight itself (Havana, for one), 00:00 never happens and the day starts at the
-jump. Locations are read from 12 hours
+jump; where they fall back across midnight (Amman in 2021), 00:00 happens twice
+and the day starts at the first. Locations are read from 12 hours
 before the day to 2 hours after it, so a stay that began the evening before (home
 overnight) is found whole, and the day's last stop can see when it ended. Stops
 are clipped to the day ("Until 7:42 AM", "From 10:00 PM", "All day"); a trip
@@ -88,6 +89,8 @@ panel credits it whenever a looked-up name is shown.
 - Phone switched off at one spot and on again elsewhere: the gap counts as time
   at the first spot, as in Visited places.
 - Playback moves in straight lines between fixes, so a sparse trip cuts corners.
+  It takes the short way over the 180° meridian, but the route line drawn on the
+  map does not yet, and would cross the whole map there.
 - Routes are drawn from every fix, unsimplified. Fine for a day; a longer range
   would want simplification first.
 - Trips are not linked to areas, so editing an area changes a stop's name the

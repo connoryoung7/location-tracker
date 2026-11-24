@@ -209,10 +209,28 @@ function clipPath(path: PathPoint[], from: number, to: number): PathPoint[] {
   return clipped;
 }
 
-/** Where a straight line from `a` to `b` is at `tst`. */
+/**
+ * Where a straight line from `a` to `b` is at `tst`, taking the short way
+ * round in longitude, so a trip over the 180° meridian stays near it.
+ */
 function pointAt(a: PathPoint, b: PathPoint, tst: number): PathPoint {
   const share = (tst - a.tst) / (b.tst - a.tst);
-  return { lat: a.lat + (b.lat - a.lat) * share, lon: a.lon + (b.lon - a.lon) * share, tst };
+  return {
+    lat: a.lat + (b.lat - a.lat) * share,
+    lon: wrapLongitude(a.lon + longitudeDelta(a.lon, b.lon) * share),
+    tst,
+  };
+}
+
+/** From `from` to `to` the short way, in degrees: within ±180. Exact unless it wraps. */
+function longitudeDelta(from: number, to: number): number {
+  const delta = to - from;
+  return delta > 180 ? delta - 360 : delta < -180 ? delta + 360 : delta;
+}
+
+/** Back into -180…180. Exact unless it wraps. */
+function wrapLongitude(lon: number): number {
+  return lon > 180 ? lon - 360 : lon < -180 ? lon + 360 : lon;
 }
 
 function positionsOf(feature: TimelineFeature): Position[] {

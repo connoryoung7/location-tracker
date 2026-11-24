@@ -41,8 +41,10 @@ export function zonedDayRange(dateKey: string, timeZone: string): { from: number
 
 /**
  * The first instant (ms) of the given day in `timeZone`: when its wall clock
- * reads 00:00, or, in a zone whose clocks jump forward at midnight (Havana, on
- * its daylight-saving day), the jump itself, since 00:00 never happens.
+ * first reads 00:00. In a zone whose clocks jump forward at midnight (Havana,
+ * on its daylight-saving day), 00:00 never happens and the day starts at the
+ * jump; in one whose clocks fall back across midnight (Amman, 2021-10-29),
+ * 00:00 happens twice and the day starts at the first.
  */
 function zonedMidnight(year: number, month: number, day: number, timeZone: string): number {
   const wallClock = Date.UTC(year, month - 1, day);
@@ -54,11 +56,14 @@ function zonedMidnight(year: number, month: number, day: number, timeZone: strin
 
   // Date.UTC normalises an overflowing day, so this is the day really meant.
   const dateKey = new Date(wallClock).toISOString().slice(0, 10);
-  if (localDateKey(midnight, timeZone) === dateKey) return midnight;
+  const isFirstSecond =
+    localDateKey(midnight, timeZone) === dateKey &&
+    localDateKey(midnight - 1000, timeZone) < dateKey;
+  if (isFirstSecond) return midnight;
 
-  // Still the day before: midnight fell in the gap. The day starts at the
-  // jump, the first second whose local date is `dateKey`; find it by halving.
-  let before = midnight;
+  // Midnight was skipped, or this is its second occurrence. Either way the day
+  // starts at the first second whose local date is `dateKey`; find it by halving.
+  let before = midnight - MAX_GAP_MS;
   let after = midnight + MAX_GAP_MS;
   while (after - before > 1000) {
     const middle = before + Math.floor((after - before) / 2000) * 1000;

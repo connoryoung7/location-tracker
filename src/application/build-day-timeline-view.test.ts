@@ -202,6 +202,24 @@ describe('buildDayTimelineView', () => {
     expect(view.track.every(([, , tst]) => tst >= DAY.from && tst <= DAY.to)).toBe(true);
   });
 
+  test('a route crossing midnight over the 180° meridian is placed on it, not across the world', () => {
+    const view = buildDayTimelineView(
+      timeline([
+        trip({
+          startedAt: DAY.from - 600,
+          endedAt: DAY.from + 600,
+          path: [
+            { lat: -17, lon: 179, tst: DAY.from - 600 },
+            { lat: -17, lon: -179, tst: DAY.from + 600 },
+          ],
+        }),
+      ]),
+    );
+
+    expect(view.track[0]![2]).toBe(DAY.from);
+    expect(Math.abs(view.track[0]![0])).toBeCloseTo(180, 6);
+  });
+
   test('credits OpenStreetMap for a trip naming a looked-up stop outside the day', () => {
     const view = buildDayTimelineView(
       timeline([

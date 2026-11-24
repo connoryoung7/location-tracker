@@ -35,7 +35,14 @@ export function positionAt(track, tst) {
   const next = track[low + 1];
   if (!next || next[2] === at) return [lon, lat];
   const share = (tst - at) / (next[2] - at);
-  return [lon + (next[0] - lon) * share, lat + (next[1] - lat) * share];
+  // The short way round in longitude, so a trip over the 180° meridian stays near it.
+  let lonDelta = next[0] - lon;
+  if (lonDelta > 180) lonDelta -= 360;
+  else if (lonDelta < -180) lonDelta += 360;
+  let position = lon + lonDelta * share;
+  if (position > 180) position -= 360;
+  else if (position < -180) position += 360;
+  return [position, lat + (next[1] - lat) * share];
 }
 
 /** What the user was doing at `tst`, from the timeline rows, e.g. `At Home`. */
