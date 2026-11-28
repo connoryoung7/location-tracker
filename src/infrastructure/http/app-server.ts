@@ -4,6 +4,7 @@ import { dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import {
   buildAreaEventView,
+  resolveTimeZone,
   type AreaEventListRow,
   type AreaEventView,
 } from '@/application/build-area-event-view.ts';
@@ -23,7 +24,14 @@ import {
   type VisitedPlaceRow,
   type VisitedPlaceView,
 } from '@/application/build-visited-place-view.ts';
+import type { DayTimeline } from '@/application/build-day-timeline.ts';
+import {
+  buildDayTimelineView,
+  type DayTimelineView,
+  type TimelineRow,
+} from '@/application/build-day-timeline-view.ts';
 import type { VisitedPlace } from '@/application/infer-visited-places.ts';
+import { isDateKey } from '@/application/zoned-day.ts';
 import { pickAreaCategoryColor } from '@/application/pick-area-category-color.ts';
 import {
   CreateAreaCategorySchema,
@@ -57,6 +65,8 @@ export interface AppDeps {
   recompute?: (userId: string) => Promise<{ locations: number; before: number; after: number }>;
   /** Works out where a user stopped within `range` (Unix epoch seconds). */
   visitedPlaces?: (userId: string, range: { from?: number }) => Promise<VisitedPlace[]>;
+  /** Works out one of a user's days (`YYYY-MM-DD` in `timeZone`): their stops and trips. */
+  dayTimeline?: (userId: string, day: { date: string; timeZone: string }) => Promise<DayTimeline>;
   areaRepo: AreaRepository;
   areaCategories: AreaCategoryRepository;
   areaEvents: AreaEventRepository;
@@ -503,6 +513,55 @@ function renderPlacesNotice(message: string): string {
   return `<p class="notice legend-error" data-tone="error" role="alert">${escapeHtml(message)}</p>`;
 }
 
+function renderTimelineRow(row: TimelineRow): string {
+  const classes = ['timeline-row', `timeline-${row.kind}`];
+  if (row.isPathEstimated) classes.push('timeline-estimated');
+  return `
+      <li class="${classes.join(' ')}">
+        <button type="button" class="timeline-locate" data-entry-id="${escapeHtml(row.entryId)}">
+          <span class="timeline-time">${escapeHtml(row.timeLabel)}</span>
+          <span class="timeline-label">${escapeHtml(row.label)}</span>
+          <span class="timeline-detail">${escapeHtml(row.detail)}</span>
+        </button>
+      </li>`;
+}
+
+/**
+ * The day's stops and trips, a playback slider over the part of the day with
+ * data, and a `timeline-data` block that `public/day-timeline.js` draws.
+ */
+function renderTimelineFragment(view: DayTimelineView): string {
+  const data = `<script type="application/json" id="timeline-data">${escapeJsonForScript(view)}</script>`;
+  const heading = `<p class="timeline-day">${escapeHtml(view.dayLabel)}</p>`;
+  if (view.rows.length === 0) {
+    return `${heading}<p class="events-empty">No locations on this day.</p>${data}`;
+  }
+
+  const first = view.track[0]?.[2];
+  const last = view.track.at(-1)?.[2];
+  const playback =
+    first !== undefined && last !== undefined && last > first
+      ? `
+    <div class="timeline-playback">
+      <label for="timeline-scrubber">Play back the day</label>
+      <input type="range" id="timeline-scrubber" min="${first}" max="${last}" step="1" value="${first}" />
+      <p id="timeline-caption" class="timeline-caption" aria-live="polite"></p>
+    </div>`
+      : '';
+  // OpenStreetMap data is ODbL-licensed and must be credited wherever it is shown.
+  const attribution = view.usesOpenStreetMap
+    ? '<p class="place-attribution">Place names are best guesses from <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>.</p>'
+    : '';
+
+  return `
+    ${heading}
+    <ol class="timeline-list">${view.rows.map(renderTimelineRow).join('')}</ol>
+    ${playback}
+    ${attribution}
+    ${data}
+  `;
+}
+
 /**
  * Out-of-band element carrying the draw form's error text. Sent alongside the
  * legend so a rejected area reports itself without blanking the sidebar; empty
@@ -676,6 +735,19 @@ function renderPage(selectedUserId?: string): string {
           <span class="htmx-indicator" aria-busy="true">Finding places…</span>
         </form>
         <div id="places"></div>
+      </section>
+
+      <!-- Loaded only on request, like Places visited: each run reads a whole day. -->
+      <section class="panel" id="timeline-panel" aria-labelledby="timeline-heading">
+        <h2 id="timeline-heading">Day timeline</h2>
+        <p class="panel-hint">See where this user stopped and travelled on one day, and play it back on the map.</p>
+        <form id="timeline-form" class="places-form" hx-get="/fragments/timeline" hx-include="#user-scope" hx-target="#timeline" hx-swap="innerHTML" hx-disabled-elt="find button">
+          <!-- app.js sets this to today, in the viewer's own calendar. -->
+          <label>Day <input type="date" name="date" id="timeline-date" required /></label>
+          <button type="submit" class="secondary" data-user-submit disabled>Show day</button>
+          <span class="htmx-indicator" aria-busy="true">Building the timeline…</span>
+        </form>
+        <div id="timeline"></div>
       </section>
 
       <!-- Loaded each time it opens, so it never shows a stale copy of the poll. -->
@@ -1004,6 +1076,32 @@ export function createAppServer(deps: AppDeps) {
     } catch (error) {
       deps.logger.error('Failed to find visited places', error);
       res.status(503).type('html').send(renderPlacesNotice('Could not find places. Please retry.'));
+    }
+  });
+
+  app.get('/fragments/timeline', async (req, res) => {
+    const user = parseUserId(req.query.userId);
+    if (user.kind !== 'valid') {
+      res.status(422).type('html').send(renderPlacesNotice('Select a user above.'));
+      return;
+    }
+    const date = typeof req.query.date === 'string' ? req.query.date : '';
+    if (!isDateKey(date)) {
+      res.status(422).type('html').send(renderPlacesNotice('Choose a day.'));
+      return;
+    }
+    const timeZone = resolveTimeZone(typeof req.query.tz === 'string' ? req.query.tz : undefined);
+
+    try {
+      if (!deps.dayTimeline) throw new Error('Day timelines are unavailable');
+      const timeline = await deps.dayTimeline(user.userId, { date, timeZone });
+      res.type('html').send(renderTimelineFragment(buildDayTimelineView(timeline)));
+    } catch (error) {
+      deps.logger.error('Failed to build the day timeline', error);
+      res
+        .status(503)
+        .type('html')
+        .send(renderPlacesNotice('Could not build the timeline. Please retry.'));
     }
   });
 

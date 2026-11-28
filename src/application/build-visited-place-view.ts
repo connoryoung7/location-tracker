@@ -80,7 +80,7 @@ const NOTE_BY_LOOKUP: Partial<Record<PlaceLookupStatus, string>> = {
 export function buildVisitedPlaceView(userId: string, places: VisitedPlace[]): VisitedPlaceView {
   const rows = places.map((place, index): VisitedPlaceRow => {
     const [likely, ...others] = place.candidates;
-    const label = place.area?.name ?? likely?.name ?? 'Unknown place';
+    const label = labelForPlace(place);
     const category = place.area ? AREA_CATEGORY : likely?.category;
     const note = place.area || likely ? undefined : NOTE_BY_LOOKUP[place.lookup];
     const lastVisit = place.visits.at(-1);
@@ -162,6 +162,11 @@ function summarizeCategories(rows: VisitedPlaceRow[]): VisitedCategoryRow[] {
   return [...byCategory.values()].sort(
     (a, b) => b.visitCount - a.visitCount || a.category.localeCompare(b.category),
   );
+}
+
+/** The area name, else the most likely nearby place, else a placeholder. */
+export function labelForPlace(place: Pick<VisitedPlace, 'area' | 'candidates'>): string {
+  return place.area?.name ?? place.candidates[0]?.name ?? 'Unknown place';
 }
 
 /** `45 min`, `3h 20m`, `2d 4h`. Under a minute rounds up to `1 min`. */

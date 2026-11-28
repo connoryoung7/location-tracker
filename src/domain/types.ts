@@ -346,6 +346,25 @@ export type Visit = {
   locationCount: number;
 };
 
+/**
+ * A stretch of travel between two stops, detected from location history.
+ * Inferred, not reported by the device.
+ */
+export type Trip = {
+  /** When the user set off (Unix epoch seconds); the previous stop's estimated departure. */
+  startedAt: number;
+  /** When the user arrived at the next stop, or the last fix if they never stopped. */
+  endedAt: number;
+  /** The route, oldest first: the start, every usable fix on the way, then the end. */
+  path: { lat: number; lon: number; tst: number }[];
+  /** Along `path` (meters). */
+  distanceMeters: number;
+  /** No fixes were reported on the way, so `path` is a straight line between the stops. */
+  isPathEstimated: boolean;
+  /** The user had not stopped again by the last fix, so the trip may still be going. */
+  isOngoing: boolean;
+};
+
 /** A named feature on the map, such as a shop or a park, that a user might have visited. */
 export type PointOfInterest = {
   /** Identifier from the data source, e.g. `node/123` for OpenStreetMap. */

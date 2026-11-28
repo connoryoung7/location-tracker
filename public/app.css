@@ -42,6 +42,8 @@
   --event-entered-color: #15803d;
   --event-exited-color: #dc2626;
   --place-color: #7c3aed;
+  /* Matches TIMELINE_COLOR in day-timeline.js. */
+  --timeline-color: #ea580c;
 
   /*
    * Pico's form controls and spacing are sized for full-width pages; a narrow
@@ -61,6 +63,7 @@
     --event-entered-color: #22c55e;
     --event-exited-color: #f87171;
     --place-color: #a78bfa;
+    --timeline-color: #fb923c;
   }
 }
 
@@ -1051,6 +1054,108 @@ body {
 .pico.popup .popup-save-area:is(:hover, :focus-visible) {
   --pico-background-color: var(--place-color);
   --pico-color: var(--surface-raised);
+}
+
+/* ---------- Day timeline ---------- */
+
+.pico #timeline:not(:empty) {
+  margin-top: var(--space-3);
+}
+
+.pico .timeline-day {
+  margin: 0 0 var(--space-2);
+  font-weight: 600;
+}
+
+.pico .timeline-list {
+  max-height: 40vh;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+}
+
+.pico .timeline-list > li {
+  list-style: none;
+  margin: 0 0 var(--space-1);
+}
+
+.pico .timeline-locate {
+  --pico-background-color: transparent;
+  --pico-border-color: transparent;
+  --pico-color: var(--pico-color);
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0 var(--space-2);
+  width: 100%;
+  margin: 0;
+  padding: var(--space-2) var(--space-2) var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  box-shadow: none;
+  font-size: var(--text-md);
+  text-align: left;
+}
+
+.pico .timeline-locate:is(:hover, :focus-visible) {
+  --pico-background-color: color-mix(in srgb, var(--accent) 12%, var(--surface-raised));
+  --pico-color: inherit;
+}
+
+/* A stop is a solid edge; a trip a lighter one, dashed when its route is a guess. */
+.pico .timeline-stop .timeline-locate {
+  border-left: 3px solid var(--timeline-color);
+}
+
+.pico .timeline-trip .timeline-locate {
+  border-left: 3px solid color-mix(in srgb, var(--timeline-color) 45%, transparent);
+}
+
+.pico .timeline-estimated .timeline-locate {
+  border-left-style: dashed;
+}
+
+.timeline-time {
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.timeline-label {
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.timeline-trip .timeline-label {
+  font-weight: 500;
+}
+
+.timeline-detail {
+  grid-column: 2;
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+
+.pico .timeline-playback {
+  margin-top: var(--space-3);
+}
+
+.pico .timeline-playback label {
+  font-size: var(--text-sm);
+}
+
+.pico .timeline-playback input[type='range'] {
+  margin: var(--space-1) 0;
+  accent-color: var(--timeline-color);
+}
+
+.pico .timeline-caption {
+  margin: 0;
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
 }
 
 /* ---------- Categories in the areas list ---------- */
