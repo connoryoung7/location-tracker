@@ -1,5 +1,6 @@
 import { basemapStyleFor, followColorScheme } from '/static/basemap.js';
 import { createConfirmDialog } from '/static/confirm-dialog.js';
+import { attachDotTooltip } from '/static/dot-tooltip.js';
 import { createDraftMarker } from '/static/draft-marker.js';
 import { setNotice, toneFromResponses } from '/static/notices.js';
 import { createAreaForm, updateCategorySelect } from '/static/area-form.js';
@@ -219,6 +220,26 @@ map.on('click', 'events-points', (event) => {
   container.append(label);
 
   showPopup(new Popup().setLngLat(feature.geometry.coordinates).setDOMContent(container));
+});
+
+// Resting the cursor on dots lists when each one under it happened.
+const dotTooltip = attachDotTooltip(map, {
+  Popup,
+  isEnabled: () => drawState === 'idle',
+  describers: {
+    'events-points': (properties) => {
+      // A previous user's point, still drawn for a moment after a switch.
+      if (properties.userId !== userSelect.value) return null;
+      const { kind, areaId, areaLabel, tst, isoTime } = properties;
+      return {
+        key: `event:${tst}:${kind}:${areaId}`,
+        color: EVENT_COLORS[kind],
+        label: `${kind === 'entered' ? 'Entered' : 'Exited'} ${areaLabel}`,
+        isoTime,
+      };
+    },
+    [PLACES_LAYER_ID]: (properties) => visitedPlaces.describeDot(properties),
+  },
 });
 
 map.on('mouseenter', 'events-points', () => {
@@ -658,6 +679,7 @@ watchUserScope(document, {
     // Nothing of the previous user's may stay on the map while the new user's
     // panels load. Their fragments reload themselves via `change from:#user-scope`.
     activePopup?.remove();
+    dotTooltip.reset();
     framedUserId = null;
     resetAreaList();
     pendingView = null;

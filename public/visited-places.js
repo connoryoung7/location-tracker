@@ -196,6 +196,22 @@ export function attachVisitedPlaces(map, { Popup, isDrawing, proposeArea, root =
 
   return {
     /**
+     * A place point's entry in the map's hover tooltip (see dot-tooltip.js),
+     * or null for a point from an older view, whose place ID now names a
+     * different place.
+     */
+    describeDot(properties) {
+      if (properties.viewGeneration !== viewGeneration) return null;
+      return {
+        key: `place:${viewGeneration}:${properties.placeId}`,
+        color: PLACE_COLOR,
+        label: properties.label,
+        isoTime: properties.lastVisitIso,
+        timePrefix: 'Last visit',
+      };
+    },
+
+    /**
      * Drops the results and their map points, for when the selected user
      * changes. Places are only ever found on request, so nothing reloads.
      * Like a new result, it starts a new view: the old points ignore clicks
