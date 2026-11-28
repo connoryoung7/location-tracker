@@ -637,6 +637,62 @@ body {
   font-size: var(--text-sm);
 }
 
+/* ---------- Dot hover tooltip ---------- */
+
+/*
+ * Never under the cursor's control: hovering it would leave the map canvas,
+ * dismiss it, and bring it straight back.
+ */
+.dot-tooltip {
+  pointer-events: none;
+}
+
+.dot-tooltip .maplibregl-popup-content {
+  padding: var(--space-2) var(--space-3);
+}
+
+.pico.popup .dot-times {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--text-sm);
+}
+
+.pico.popup .dot-times li {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  list-style: none;
+}
+
+.pico.popup .dot-times li + li {
+  margin-top: var(--space-1);
+}
+
+.pico.popup .dot-swatch {
+  width: 0.625rem;
+  height: 0.625rem;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1.5px #ffffff;
+}
+
+.pico.popup .dot-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pico.popup .dot-times time {
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.pico.popup .dot-times + .popup-detail {
+  margin-top: var(--space-1);
+}
+
 /* ---------- Confirm dialog ---------- */
 
 .pico #confirm-dialog article {
