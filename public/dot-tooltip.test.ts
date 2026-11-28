@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { Window } from 'happy-dom';
+import type { HTMLElement } from 'happy-dom';
 
 import { attachDotTooltip, listDotEntries, renderDotEntries } from './dot-tooltip.js';
 
@@ -70,7 +71,7 @@ describe('attachDotTooltip', () => {
   const { document } = new Window();
   const DELAY_MS = 20;
 
-  function setup({ isEnabled = () => true } = {}) {
+  function setup({ isEnabled = (): boolean => true }: { isEnabled?: () => boolean } = {}) {
     const handlers: Record<string, (event?: unknown) => void> = {};
     let featuresUnderCursor: MockFeature[] = [];
     const shown: Array<{ isRemoved: boolean; content: HTMLElement }> = [];
